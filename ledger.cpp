@@ -116,15 +116,16 @@ static Header header(lv_obj_t *p) {
 }
 
 // a ledger row: name ..... value (the dotted leader fills the space between them)
-typedef struct { lv_obj_t *row, *name, *val, *lead; lv_point_precise_t pts[2]; } Row;
+typedef struct { lv_obj_t *row, *name, *val, *lead; lv_point_precise_t pts[2]; int w; } Row;
 static void row_fit(Row *r) {
   lv_obj_update_layout(r->row);
-  const int x1 = lv_obj_get_width(r->name) + 8, x2 = 320 - lv_obj_get_width(r->val) - 8;
+  const int x1 = lv_obj_get_width(r->name) + 8, x2 = r->w - lv_obj_get_width(r->val) - 8;
   r->pts[0].x = x1; r->pts[1].x = x2 > x1 ? x2 : x1;
   r->pts[0].y = r->pts[1].y = 0;
   lv_line_set_points(r->lead, r->pts, 2);
 }
 static void row_init(Row *r, lv_obj_t *p, const char *name, bool strong, lv_event_cb_t cb) {
+  r->w = 320;
   r->row = lv_obj_create(p);
   lv_obj_remove_style_all(r->row);
   lv_obj_set_size(r->row, 320, 40);
@@ -210,7 +211,7 @@ static const char *result_text(bd_result r) {
 }
 
 // ---- Ready ---------------------------------------------------------------------------------------------------------
-static Header g_rh, g_sh;   // Ready and Steam headers (the clock is on both)
+static Header g_rh, g_sh, g_oh;   // Ready and Steam headers (the clock is on both)
 static lv_obj_t *g_temp, *g_temp_unit, *g_plan, *g_flush_btn, *g_flush_lbl, *g_note;
 static Row g_r_prof, g_r_temp, g_r_stop, g_r_press, g_r_scale, g_r_water;
 static bd_preview *g_pv;   // the active profile's plan (PSRAM)
@@ -369,6 +370,7 @@ static void update_clock(void) {
   if (bd_local_time(&h, &mi, &wd)) snprintf(b, sizeof b, "%s%s%02d:%02d", DAY[wd % 7], DOT, h, mi);
   set_text(g_rh.right, b);
   set_text(g_sh.right, b);
+  set_text(g_oh.right, b);
 }
 
 // ---- Brewing -------------------------------------------------------------------------------------------------------
@@ -837,6 +839,353 @@ static void build_splash(lv_obj_t *scr) {
   g_splash_until = 0;   // set on the first tick: the UI starts ~2.5 s after boot
 }
 
+// ---- Offline help ----------------------------------------------------------------------------------------------
+// After 5 s without the machine (never over a shot or steam): what the screen is doing (joining Wi-Fi, looking for
+// the machine); after 20 s of one try, what is wrong and the likely fix as buttons. Gone when the machine answers.
+static lv_obj_t *g_off_pg, *g_off_title, *g_off_body, *g_ob_retry, *g_ob_addr, *g_ob_wifi;
+static Row g_or_screen, g_or_net, g_or_machine;
+static uint32_t g_offline_at;   // when this try started (0 = online)
+static bool g_off_shown;
+static void open_wifi(lv_event_t *e);
+static void open_addr(lv_event_t *e);
+static void on_retry(lv_event_t *e) { (void)e; bd_wifi_retry(); g_offline_at = g_now | 1; }
+
+static lv_obj_t *column(lv_obj_t *p, int x, int y, int w) {
+  lv_obj_t *c = lv_obj_create(p);
+  lv_obj_remove_style_all(c);
+  lv_obj_set_pos(c, x, y);
+  lv_obj_set_size(c, w, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
+  lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+  return c;
+}
+static lv_obj_t *button_bar(lv_obj_t *p) {   // a row of buttons, right-aligned at the bottom
+  lv_obj_t *b = lv_obj_create(p);
+  lv_obj_remove_style_all(b);
+  lv_obj_set_pos(b, 24, 408);
+  lv_obj_set_size(b, 752, 48);
+  lv_obj_set_flex_flow(b, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(b, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(b, 16, 0);
+  lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
+  return b;
+}
+static void wide_row(Row *r, lv_obj_t *col, const char *name, int w) {
+  row_init(r, col, name, false, NULL);
+  r->w = w;
+  lv_obj_set_width(r->row, w);
+  row_fit(r);
+}
+static void show(lv_obj_t *o, bool on) { if (on) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); }
+
+static void build_offline(lv_obj_t *scr) {
+  g_off_pg = layer(scr);
+  g_oh = header(g_off_pg);
+  set_text(g_oh.left, "OFFLINE");
+  g_off_title = text(g_off_pg, &lg_400_36, INK, "");
+  lv_obj_set_pos(g_off_title, 22, 84);
+  g_off_body = text(g_off_pg, &lg_400_17, INK, "");
+  lv_obj_set_pos(g_off_body, 24, 146);
+  lv_obj_set_width(g_off_body, 620);
+  lv_label_set_long_mode(g_off_body, LV_LABEL_LONG_MODE_WRAP);
+  lv_obj_set_style_text_line_space(g_off_body, 6, 0);
+  lv_obj_t *col = column(g_off_pg, 24, 236, 520);
+  wide_row(&g_or_screen, col, "Screen", 520);
+  wide_row(&g_or_net, col, "Wi-Fi", 520);
+  wide_row(&g_or_machine, col, "Machine", 520);
+  lv_obj_t *bar = button_bar(g_off_pg);
+  g_ob_retry = button(bar, "Try again", on_retry, NULL);
+  g_ob_addr = button(bar, "Machine address", open_addr, NULL);
+  g_ob_wifi = button(bar, "Wi-Fi settings", open_wifi, NULL);
+  lv_obj_add_flag(g_off_pg, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void offline_text(const bd_machine *m) {
+  const bd_network *n = bd_network_state();
+  const bool trying = g_now - g_offline_at < 20000 || m->why == BD_WHY_NONE;
+  const char *net = n->ssid[0] ? n->ssid : n->target;
+  const char *addr = n->machine_addr[0] ? n->machine_addr : "the machine";
+  char t[48], b[240];
+  bool retry = false, maddr = false, wifi = true;
+  if (!n->ssid[0] && !n->target[0]) {
+    snprintf(t, sizeof t, "No Wi-Fi set up");
+    snprintf(b, sizeof b, "Choose the Wi-Fi network your machine is on, and type its password.");
+  } else if (!n->ssid[0]) {
+    retry = true;
+    if (trying) {
+      snprintf(t, sizeof t, "Joining Wi-Fi");
+      snprintf(b, sizeof b, "Connecting to %s.", net);
+    } else {
+      snprintf(t, sizeof t, "Not connected to Wi-Fi");
+      if (m->why == BD_WHY_WIFI_NO_AP) snprintf(b, sizeof b, "%s is not in range. The screen keeps trying.", net);
+      else if (m->why == BD_WHY_WIFI_AUTH) snprintf(b, sizeof b, "%s refused the password. Choose it again in Wi-Fi settings and retype it.", net);
+      else snprintf(b, sizeof b, "%s did not let the screen join (a router may block it). The screen keeps trying.", net);
+    }
+  } else {
+    maddr = true;
+    if (trying) {
+      snprintf(t, sizeof t, "Looking for your machine");
+      snprintf(b, sizeof b, "Asking for %s on %s.", addr, net);
+    } else {
+      snprintf(t, sizeof t, "Machine not found");
+      if (m->why == BD_WHY_NO_REPLY)
+        snprintf(b, sizeof b, "%s was found at %s but does not answer. Is the machine starting up?", addr, n->why_ip[0] ? n->why_ip : "its address");
+      else snprintf(b, sizeof b, "Nothing on %s answers to %s. Is the machine on? If it has another name or a fixed address, set it here.", net, addr);
+    }
+  }
+  set_text(g_off_title, t);
+  set_text(g_off_body, b);
+  set_text(lv_obj_get_child(g_ob_wifi, 0), n->target[0] || n->ssid[0] ? "Wi-Fi settings" : "Choose network");
+  show(g_ob_retry, retry);
+  show(g_ob_addr, maddr);
+  show(g_ob_wifi, wifi);
+  row_set(&g_or_screen, n->screen_ip[0] ? n->screen_ip : DASH);
+  if (n->ssid[0]) snprintf(b, sizeof b, "%s (%d dBm)", n->ssid, n->rssi);
+  else snprintf(b, sizeof b, "%s", n->target[0] ? n->target : "none");
+  row_set(&g_or_net, b);
+  row_set(&g_or_machine, n->machine_where[0] ? n->machine_where : addr);
+}
+
+static void offline_step(const bd_machine *m) {
+  if (m->link == BD_LINK_ONLINE) {
+    g_offline_at = 0;
+    if (g_off_shown) { lv_obj_add_flag(g_off_pg, LV_OBJ_FLAG_HIDDEN); g_off_shown = false; }
+    return;
+  }
+  if (!g_offline_at) g_offline_at = g_now | 1;
+  if (!g_off_shown && g_now - g_offline_at > 5000 && !g_brewing_shown && !g_steam_shown) {
+    lv_obj_remove_flag(g_off_pg, LV_OBJ_FLAG_HIDDEN);
+    g_off_shown = true;
+  }
+  static uint32_t upd;
+  if (g_off_shown && g_now - upd > 500) { upd = g_now; offline_text(m); }
+}
+
+// ---- Wi-Fi list ----------------------------------------------------------------------------------------------------
+static Header g_wh;
+static lv_obj_t *g_wifi, *g_wlist, *g_wforget;
+static Row g_wrows[BD_MAX_NETS + 1];
+static bd_wifi_net g_nets[BD_MAX_NETS];
+static int g_nn;
+static bool g_scanning;
+static uint32_t g_forget_at;
+static void kbd_open(int mode, const char *ssid);
+enum { KB_PASS, KB_ADDR };
+
+static void on_net(lv_event_t *e) {
+  const int i = (int)(intptr_t)lv_event_get_user_data(e);
+  if (i < 0 || i >= g_nn) return;
+  if (!g_nets[i].locked) {   // an open network joins at once
+    bd_wifi_join(g_nets[i].ssid, "");
+    set_text(g_wh.right, "JOINING");
+  } else kbd_open(KB_PASS, g_nets[i].ssid);
+}
+static void fill_wifi(void) {
+  lv_obj_clean(g_wlist);
+  const bd_network *n = bd_network_state();
+  char b[48];
+  int k = 0;
+  if (n->ssid[0]) {
+    Row *r = &g_wrows[k++];
+    wide_row(r, g_wlist, "", 752);
+    lv_obj_set_height(r->row, 52);
+    lv_obj_set_style_text_font(r->name, &lg_600_17, 0);
+    lv_obj_set_style_text_color(r->name, ACCENT, 0);
+    lv_label_set_text(r->name, n->ssid);
+    one_line(r->name, 520);
+    snprintf(b, sizeof b, "connected%s%d dBm", DOT, n->rssi);
+    lv_label_set_text(r->val, b);
+    row_fit(r);
+  }
+  for (int i = 0; i < g_nn && k <= BD_MAX_NETS; i++) {
+    if (!strcmp(g_nets[i].ssid, n->ssid)) continue;
+    Row *r = &g_wrows[k++];
+    wide_row(r, g_wlist, "", 752);
+    lv_obj_set_height(r->row, 52);
+    lv_obj_set_style_text_color(r->name, INK, 0);
+    lv_label_set_text(r->name, g_nets[i].ssid);
+    one_line(r->name, 520);
+    snprintf(b, sizeof b, "%s%d dBm", g_nets[i].locked ? "" : "open \xC2\xB7 ", g_nets[i].rssi);
+    lv_label_set_text(r->val, b);
+    row_fit(r);
+    lv_obj_add_flag(r->row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(r->row, PRESSED, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(r->row, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_add_event_cb(r->row, on_net, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+  }
+  if (!k) lv_label_set_text(text(g_wlist, &lg_400_17, MUTED, ""), g_scanning ? "Searching for networks..." : "No networks found. Only 2.4 GHz networks work.");
+  show(g_wforget, n->ssid[0] || n->target[0]);
+}
+static void open_wifi(lv_event_t *e) {
+  (void)e;
+  g_scanning = true;
+  g_nn = 0;
+  set_text(g_wh.right, "SEARCHING");
+  bd_wifi_scan();
+  fill_wifi();
+  lv_obj_remove_flag(g_wifi, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_to_index(g_wifi, -1);
+}
+static void close_wifi(lv_event_t *e) { (void)e; lv_obj_add_flag(g_wifi, LV_OBJ_FLAG_HIDDEN); }
+static void on_forget(lv_event_t *e) {
+  (void)e;
+  if (!g_forget_at) {   // two taps: the first one asks
+    g_forget_at = g_now | 1;
+    set_text(lv_obj_get_child(g_wforget, 0), "Tap again to forget");
+    lv_obj_set_style_text_color(lv_obj_get_child(g_wforget, 0), ACCENT, 0);
+    return;
+  }
+  g_forget_at = 0;
+  bd_wifi_forget();
+  set_text(lv_obj_get_child(g_wforget, 0), "Forget network");
+  lv_obj_set_style_text_color(lv_obj_get_child(g_wforget, 0), INK, 0);
+  set_text(g_wh.right, "FORGOTTEN");
+  fill_wifi();
+}
+static void build_wifi(lv_obj_t *scr) {
+  g_wifi = layer(scr);
+  g_wh = header(g_wifi);
+  set_text(g_wh.left, "WI-FI");
+  g_wlist = lv_obj_create(g_wifi);
+  lv_obj_remove_style_all(g_wlist);
+  lv_obj_set_pos(g_wlist, 24, 64);
+  lv_obj_set_size(g_wlist, 752, 330);
+  lv_obj_set_flex_flow(g_wlist, LV_FLEX_FLOW_COLUMN);
+  lv_obj_t *bar = button_bar(g_wifi);
+  g_wforget = button(bar, "Forget network", on_forget, NULL);
+  button(bar, "Machine address", open_addr, NULL);
+  button(bar, "Close", close_wifi, NULL);
+  lv_obj_add_flag(g_wifi, LV_OBJ_FLAG_HIDDEN);
+}
+
+// ---- Keyboard (Wi-Fi password, machine address) --------------------------------------------------------------------
+// Letters, shift (one character), two symbol layers: every printable ASCII character. The text is shown as typed
+// (this is the owner's own screen); it is never logged.
+static Header g_kh;
+static lv_obj_t *g_kbd, *g_kfield, *g_kok, *g_kkeys[3][10], *g_kspecial, *g_klayer;
+static char g_ktext[64], g_kssid[33];
+static int g_klen, g_kmode, g_klay;   // layer: 0 lower, 1 upper, 2 symbols, 3 more symbols
+static const char *KLAY[4][3] = {{"qwertyuiop", "asdfghjkl", "zxcvbnm"},
+                                 {"QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"},
+                                 {"1234567890", "@#$_&-+()", "*\"':;!?"},     // the middle row has 9 keys
+                                 {"~`|\\<>{}[]", "=^%/,.", "!?.,-_@"}};
+
+static void kbd_show(void) {
+  char b[80];
+  const int tail = 32;   // the end of a long text, after "..."
+  snprintf(b, sizeof b, "%s%s|", g_klen > tail ? "..." : "", g_klen > tail ? g_ktext + g_klen - tail : g_ktext);
+  set_text(g_kfield, b);
+  for (int r = 0; r < 3; r++) {
+    const char *row = KLAY[g_klay][r];
+    const int n = (int)strlen(row);
+    for (int c = 0; c < 10; c++) {
+      if (!g_kkeys[r][c]) continue;
+      show(g_kkeys[r][c], c < n);
+      if (c < n) { char k[2] = {row[c], 0}; set_text(lv_obj_get_child(g_kkeys[r][c], 0), k); }
+    }
+  }
+  set_text(lv_obj_get_child(g_kspecial, 0), g_klay == 0 ? "shift" : g_klay == 1 ? "SHIFT" : g_klay == 2 ? "#+=" : "123");
+  set_text(lv_obj_get_child(g_klayer, 0), g_klay >= 2 ? "ABC" : "?123");
+  const bool ok = g_kmode == KB_PASS ? g_klen >= 8 : g_klen > 0;
+  lv_obj_set_style_border_color(g_kok, ok ? INK : LEAD_SOFT, 0);
+  lv_obj_set_style_text_color(lv_obj_get_child(g_kok, 0), ok ? INK : LEAD_STRONG, 0);
+  if (ok) lv_obj_add_flag(g_kok, LV_OBJ_FLAG_CLICKABLE); else lv_obj_remove_flag(g_kok, LV_OBJ_FLAG_CLICKABLE);
+}
+static void kbd_type(char ch) {
+  if (g_klen + 1 >= (int)sizeof g_ktext) return;
+  g_ktext[g_klen++] = ch;
+  g_ktext[g_klen] = 0;
+  if (g_klay == 1) g_klay = 0;   // shift is for one character
+  kbd_show();
+}
+static void on_key(lv_event_t *e) {
+  const int rc = (int)(intptr_t)lv_event_get_user_data(e), r = rc >> 4, c = rc & 15;
+  if (c < (int)strlen(KLAY[g_klay][r])) kbd_type(KLAY[g_klay][r][c]);
+}
+static void on_space(lv_event_t *e) { (void)e; kbd_type(' '); }
+static void on_back(lv_event_t *e) { (void)e; if (g_klen) g_ktext[--g_klen] = 0; kbd_show(); }
+static void on_special(lv_event_t *e) { (void)e; g_klay = g_klay == 0 ? 1 : g_klay == 1 ? 0 : g_klay == 2 ? 3 : 2; kbd_show(); }
+static void on_layer(lv_event_t *e) { (void)e; g_klay = g_klay >= 2 ? 0 : 2; kbd_show(); }
+static void kbd_close(void) {
+  memset(g_ktext, 0, sizeof g_ktext);   // no password left in memory
+  g_klen = 0;
+  lv_obj_add_flag(g_kbd, LV_OBJ_FLAG_HIDDEN);
+}
+static void on_kcancel(lv_event_t *e) { (void)e; kbd_close(); }
+static void on_kok(lv_event_t *e) {
+  (void)e;
+  if (g_kmode == KB_PASS) {
+    bd_wifi_join(g_kssid, g_ktext);
+    set_text(g_kh.right, "JOINING");
+  } else {
+    bd_set_machine_address(g_ktext);
+    kbd_close();
+    lv_obj_add_flag(g_wifi, LV_OBJ_FLAG_HIDDEN);
+    g_offline_at = g_offline_at ? (g_now | 1) : 0;   // a new try with the new address
+    note("MACHINE ADDRESS SET");
+  }
+}
+static void kbd_open(int mode, const char *ssid) {
+  char b[64];
+  g_kmode = mode;
+  g_klay = 0;
+  if (mode == KB_PASS) {
+    snprintf(g_kssid, sizeof g_kssid, "%s", ssid);
+    g_klen = 0;
+    g_ktext[0] = 0;
+    upper(b, sizeof b, ssid);
+    char h[80];
+    snprintf(h, sizeof h, "PASSWORD FOR %s", b);
+    set_text(g_kh.left, h);
+    set_text(lv_obj_get_child(g_kok, 0), "Join");
+  } else {
+    const bd_network *n = bd_network_state();
+    snprintf(g_ktext, sizeof g_ktext, "%s", n->machine_addr);
+    g_klen = (int)strlen(g_ktext);
+    set_text(g_kh.left, "MACHINE ADDRESS \xC2\xB7 A NAME OR AN IP");
+    set_text(lv_obj_get_child(g_kok, 0), "Use");
+  }
+  set_text(g_kh.right, "");
+  kbd_show();
+  lv_obj_remove_flag(g_kbd, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_to_index(g_kbd, -1);
+}
+static void open_addr(lv_event_t *e) { (void)e; kbd_open(KB_ADDR, NULL); }
+
+static lv_obj_t *key(lv_obj_t *p, int x, int y, int w, const char *t, lv_event_cb_t cb, void *ud) {
+  lv_obj_t *k = button(p, t, NULL, NULL);
+  lv_obj_set_pos(k, x, y);
+  lv_obj_set_size(k, w, 52);
+  lv_obj_set_style_pad_hor(k, 0, 0);
+  lv_obj_set_style_text_font(lv_obj_get_child(k, 0), &lg_600_24, 0);
+  lv_obj_add_event_cb(k, cb, LV_EVENT_CLICKED, ud);
+  return k;
+}
+static void build_kbd(lv_obj_t *scr) {
+  g_kbd = layer(scr);
+  g_kh = header(g_kbd);
+  g_kfield = text(g_kbd, &lg_400_36, INK, "|");
+  lv_obj_set_pos(g_kfield, 24, 70);
+  rule(g_kbd, 24, 124, 752, 2, INK);
+  const int KW = 69, G = 6, Y0 = 146, RH = 58;
+  for (int c = 0; c < 10; c++) g_kkeys[0][c] = key(g_kbd, 24 + 4 + c * (KW + G), Y0, KW, "", on_key, (void *)(intptr_t)(0 << 4 | c));
+  for (int c = 0; c < 9; c++) g_kkeys[1][c] = key(g_kbd, 24 + 4 + (KW + G) / 2 + c * (KW + G), Y0 + RH, KW, "", on_key, (void *)(intptr_t)(1 << 4 | c));
+  g_kspecial = key(g_kbd, 28, Y0 + 2 * RH, 107, "shift", on_special, NULL);
+  lv_obj_set_style_text_font(lv_obj_get_child(g_kspecial, 0), &lg_600_17, 0);
+  for (int c = 0; c < 7; c++) g_kkeys[2][c] = key(g_kbd, 28 + 107 + G + c * (KW + G), Y0 + 2 * RH, KW, "", on_key, (void *)(intptr_t)(2 << 4 | c));
+  lv_obj_t *bk = key(g_kbd, 28 + 107 + G + 7 * (KW + G), Y0 + 2 * RH, 107, "delete", on_back, NULL);
+  lv_obj_set_style_text_font(lv_obj_get_child(bk, 0), &lg_600_17, 0);
+  lv_obj_add_event_cb(bk, on_back, LV_EVENT_LONG_PRESSED_REPEAT, NULL);
+  g_klayer = key(g_kbd, 28, Y0 + 3 * RH, 107, "?123", on_layer, NULL);
+  lv_obj_set_style_text_font(lv_obj_get_child(g_klayer, 0), &lg_600_17, 0);
+  lv_obj_t *sp = key(g_kbd, 28 + 107 + G, Y0 + 3 * RH, 7 * (KW + G) - G, "space", on_space, NULL);
+  lv_obj_set_style_text_font(lv_obj_get_child(sp, 0), &lg_600_17, 0);
+  lv_obj_t *bar = button_bar(g_kbd);
+  button(bar, "Cancel", on_kcancel, NULL);
+  g_kok = button(bar, "Join", on_kok, NULL);
+  lv_obj_add_flag(g_kbd, LV_OBJ_FLAG_HIDDEN);
+}
+
 // ---- Standby -------------------------------------------------------------------------------------------------------
 // Dim: after DIM_MS without a touch and nothing running, an idle page (clock, boiler, state) at half brightness; it
 // moves a little every 2 min against image retention. Off: after OFF_MS without a touch, or OFF_AWAY_MS untouched while
@@ -947,10 +1296,13 @@ void bd_ui_init(void) {
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
   lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
   build_ready(scr);
+  build_offline(scr);   // over Ready, under Steam / Brewing and the pages
   build_steam(scr);   // under Brewing and the pages
   build_brew(scr);
   build_profiles(scr);
   build_edit(scr);
+  build_wifi(scr);
+  build_kbd(scr);
   build_standby(scr);
   build_splash(scr);
 }
@@ -979,6 +1331,12 @@ void bd_ui_tick(uint32_t now) {
   if (steaming && !g_steam_shown) steam_open(m);
   else if (steaming) steam_step(m);
   else if (g_steam_shown) steam_close();
+  offline_step(m);
+  if (g_forget_at && g_now - g_forget_at > 3000) {   // "Tap again to forget" lasts 3 s
+    g_forget_at = 0;
+    set_text(lv_obj_get_child(g_wforget, 0), "Forget network");
+    lv_obj_set_style_text_color(lv_obj_get_child(g_wforget, 0), INK, 0);
+  }
   standby_step(m);
   bd_lvgl9_tick(now);
 }
@@ -993,6 +1351,24 @@ void bd_ui_event(const bd_event *e) {
       brew_point(e->u.point);
       break;
     case BD_EV_SHOT_END: if (g_brewing_shown) brew_end(); break;
+    case BD_EV_WIFI_SCAN:
+      g_nn = 0;
+      for (int i = 0; i < e->u.scan.n && i < BD_MAX_NETS; i++) g_nets[g_nn++] = e->u.scan.nets[i];
+      g_scanning = e->u.scan.scanning;
+      if (!lv_obj_has_flag(g_wifi, LV_OBJ_FLAG_HIDDEN)) { fill_wifi(); set_text(g_wh.right, g_scanning ? "SEARCHING" : ""); }
+      break;
+    case BD_EV_WIFI_JOIN: {
+      const bool kb = !lv_obj_has_flag(g_kbd, LV_OBJ_FLAG_HIDDEN);
+      Header *h = kb ? &g_kh : &g_wh;
+      if (e->u.join.state == BD_JOIN_BUSY) set_text(h->right, "JOINING");
+      else if (e->u.join.state == BD_JOIN_OK) {
+        if (kb) kbd_close();
+        lv_obj_add_flag(g_wifi, LV_OBJ_FLAG_HIDDEN);
+        g_offline_at = g_offline_at ? (g_now | 1) : 0;
+        note("WI-FI JOINED");
+      } else if (e->u.join.state == BD_JOIN_FAILED) set_text(h->right, kb ? "NOT JOINED Â· CHECK THE PASSWORD" : "NOT JOINED");
+      break;
+    }
     case BD_EV_COMMAND:
       if (e->u.command.answer != BD_ANSWER_OK) note("THE MACHINE DID NOT TAKE IT");
       break;
