@@ -161,12 +161,13 @@ static const char *state_word(const bd_machine *m) {
   if (m->brewing) return "BREWING";
   if (m->steaming) return "STEAM";
   if (m->hot_water) return "HOT WATER";
-  // the mode first: the machine reports readiness FLUSHING for the whole flush mode, water running or not
+  // flushing comes from the mode only: the machine reports readiness FLUSHING for the whole flush mode (water
+  // running or not) and keeps it for a moment after the mode is back to HOME
   if (!strcmp(m->mode, "FLUSH_AUTO")) return "FLUSHING";
   if (!strcmp(m->mode, "FLUSH")) return "FLUSH MODE \xC2\xB7 THE BREW SWITCH FLUSHES";
-  if (m->readiness == BD_RD_FLUSHING) return "FLUSHING";
   switch (m->readiness) {
     case BD_RD_STEAMING: return "STEAM";
+    case BD_RD_FLUSHING: return m->temperature >= m->target_temp - 1 ? "READY" : "HEATING";   // see above
     case BD_RD_READY: return "READY";
     case BD_RD_HEATING: return "HEATING";
     case BD_RD_WARMING: return "WARMING UP";
@@ -261,7 +262,7 @@ static void open_edit_stop(lv_event_t *e);
 // the release after a hold, which turned the timed flush straight off again.
 static void on_flush(lv_event_t *e) {
   const bd_machine *m = bd_machine_state();
-  const bool on = !strncmp(m->mode, "FLUSH", 5) || m->readiness == BD_RD_FLUSHING;
+  const bool on = !strncmp(m->mode, "FLUSH", 5);
   const bd_result r = bd_flush_mode(lv_event_get_code(e) == LV_EVENT_LONG_PRESSED ? BD_FLUSH_TIMED : (on ? BD_FLUSH_OFF : BD_FLUSH_ON));
   if (r != BD_OK) note(result_text(r));
 }
@@ -337,8 +338,7 @@ static void update_ready(const bd_machine *m) {
   row_set(&g_r_scale, b);
   if (on) snprintf(b, sizeof b, "%d %%", m->water_level); else snprintf(b, sizeof b, "%s", DASH);
   row_set(&g_r_water, b);
-  const bool mode_on = !strcmp(m->mode, "FLUSH");   // checked first: readiness says FLUSHING in flush mode too
-  const bool flushing = !strcmp(m->mode, "FLUSH_AUTO") || (!mode_on && m->readiness == BD_RD_FLUSHING);
+  const bool mode_on = !strcmp(m->mode, "FLUSH"), flushing = !strcmp(m->mode, "FLUSH_AUTO");   // the mode only
   set_text(g_flush_lbl, mode_on ? "Flush on" : (flushing ? "Flushing" : "Flush"));
   static int red = -1;   // red (the accent) while flush mode is on or water runs, outlined otherwise
   if (red != (mode_on || flushing)) {
