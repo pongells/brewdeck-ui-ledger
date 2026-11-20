@@ -22,6 +22,8 @@ Unofficial: not made by or affiliated with the Gaggiuino project.
   address, Wi-Fi settings.
 - **Wi-Fi:** the networks around (strongest first, the connected one on top), join with the on-screen keyboard,
   Forget (two taps); Machine address (a name or an IP) with the same keyboard.
+- **Settings** (from Ready): Wi-Fi, machine address, and what the screen and the machine run (versions, uptime and
+  why the screen last started, a pending machine update), with the unofficial line.
 - **Standby:** after 10 min without a touch, a clock with the boiler and state at half brightness; after 30 min (or
   2 min untouched while the machine is unreachable) the screen goes black and off. A touch, a shot, steam, a flush or
   a machine notice wakes it (the first touch only wakes). Emulator: `LEDGER_DIM_S=8 LEDGER_OFF_S=16 ./emu.sh` to try

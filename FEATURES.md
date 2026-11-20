@@ -85,7 +85,7 @@ Each line has an ID (`R1`, `B2`, ...) so a later standard test list can refer to
 | F2 | Hold Flush: timed flush | done | yes | red "Flushing"; no fill while holding, no seconds count |
 | N1 | Pressure-release warning (glowing edges, pulses on each beat) | missing | | core: BD_EV_PRESSURE_RELEASE |
 | N2 | Machine notices as a 5 s banner, bell with the last 10 | missing | | core: BD_EV_NOTICE |
-| N3 | Update available notice, kept in About | missing | | |
+| N3 | Update available notice, kept in About | partial | | on Settings (Machine update); no banner |
 
 ## Standby
 
@@ -100,17 +100,17 @@ Each line has an ID (`R1`, `B2`, ...) so a later standard test list can refer to
 
 | ID | Feature (Brewdeck) | Ledger | Panel | Notes |
 |---|---|---|---|---|
-| U1 | Menu | missing | | |
+| U1 | Menu | partial | | a Settings page from Ready (Wi-Fi, machine address, versions); no display settings yet |
 | U2 | Scale page | missing | | |
 | U3 | Display: brightness, Dim after, idle clock, splash | missing | | |
-| U4 | About: versions, uptime, restart reason, memory, machine versions | missing | | splash shows "VERSION 0.1" only |
+| U4 | About: versions, uptime, restart reason, memory, machine versions | done | | on the Settings page (no memory row); a pending machine update in red |
 
 ## Wi-Fi and offline
 
 | ID | Feature (Brewdeck) | Ledger | Panel | Notes |
 |---|---|---|---|---|
 | W1 | Wi-Fi list, join with an on-screen keyboard | done | | letters, shift (one character), two symbol layers; all printable ASCII; Join from 8 characters; open networks join at once |
-| W2 | Network details, Forget | partial | | Forget (two taps) on the Wi-Fi page; details (screen IP, network and signal, machine address) only on the offline page |
+| W2 | Network details, Forget | done | | Forget (two taps) on the Wi-Fi page; network, signal, screen and machine address on Settings and the offline page |
 | W3 | Machine address (name or IP) | done | | keyboard, prefilled with the current address |
 | O1 | Offline screen after 5 s: what it is doing, then after 20 s what is wrong, with buttons | done | | text page (no picture): joining / not connected (why), looking / not found (why), no Wi-Fi set up; Try again, Machine address, Wi-Fi settings |
 | O2 | Never covers a running shot or the review | done | | not opened while Brewing or Steam is shown |

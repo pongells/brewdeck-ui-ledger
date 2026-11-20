@@ -224,6 +224,7 @@ static void note(const char *t) {   // a short message in the Ready header for 3
   g_note_until = g_now + 3000;
 }
 
+#define PLAN_W 340   // leaves room for the three buttons at the bottom right
 static void plan_draw(lv_event_t *e) {
   lv_layer_t *L = lv_event_get_layer(e);
   lv_area_t a;
@@ -232,9 +233,9 @@ static void plan_draw(lv_event_t *e) {
   lv_draw_line_dsc_init(&d);
   d.color = INK;
   d.width = 1;
-  d.p1.x = a.x1; d.p1.y = a.y1 + 110; d.p2.x = a.x1 + 399; d.p2.y = a.y1 + 110;
+  d.p1.x = a.x1; d.p1.y = a.y1 + 110; d.p2.x = a.x1 + PLAN_W - 1; d.p2.y = a.y1 + 110;
   lv_draw_line(L, &d);
-  for (int x = 0; x < 400; x += 100) { d.p1.x = d.p2.x = a.x1 + x; d.p1.y = a.y1 + 104; d.p2.y = a.y1 + 110; lv_draw_line(L, &d); }
+  for (int x = 0; x < PLAN_W; x += PLAN_W / 4) { d.p1.x = d.p2.x = a.x1 + x; d.p1.y = a.y1 + 104; d.p2.y = a.y1 + 110; lv_draw_line(L, &d); }
   if (!g_pv_ok) return;
   for (int k = 0; k < BD_PV_SERIES; k++) {
     if (k == BD_PV_PRESSURE_LIMIT || k == BD_PV_FLOW_LIMIT) continue;   // what a phase drives, not its limits
@@ -269,6 +270,7 @@ static void plan_draw(lv_event_t *e) {
 }
 
 static void open_profiles(lv_event_t *e);
+static void open_settings(lv_event_t *e);
 static void open_edit_temp(lv_event_t *e);
 static void open_edit_stop(lv_event_t *e);
 // tap: flush mode on / off; hold: the machine's timed flush. The tap is SHORT_CLICKED: LVGL also sends CLICKED on
@@ -312,7 +314,7 @@ static void build_ready(lv_obj_t *scr) {
   g_plan = lv_obj_create(g_ready);
   lv_obj_remove_style_all(g_plan);
   lv_obj_set_pos(g_plan, 24, 336);
-  lv_obj_set_size(g_plan, 400, 120);
+  lv_obj_set_size(g_plan, PLAN_W, 120);
   lv_obj_remove_flag(g_plan, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(g_plan, plan_draw, LV_EVENT_DRAW_MAIN, NULL);
   g_pv = (bd_preview *)bd_alloc(sizeof(bd_preview), BD_MEM_PSRAM);
@@ -326,6 +328,8 @@ static void build_ready(lv_obj_t *scr) {
   g_flush_btn = bf;
   g_flush_lbl = lv_obj_get_child(bf, 0);
   lv_obj_align_to(bf, bp, LV_ALIGN_OUT_LEFT_MID, -16, 0);
+  lv_obj_t *bs = button(g_ready, "Settings", open_settings, NULL);
+  lv_obj_align_to(bs, bf, LV_ALIGN_OUT_LEFT_MID, -16, 0);
 }
 
 static void update_ready(const bd_machine *m) {
@@ -1186,6 +1190,80 @@ static void build_kbd(lv_obj_t *scr) {
   lv_obj_add_flag(g_kbd, LV_OBJ_FLAG_HIDDEN);
 }
 
+// ---- Settings ------------------------------------------------------------------------------------------------------
+// Wi-Fi and the machine address (tap), then what the screen and the machine run (read-only), and the unofficial line.
+static Header g_gh;
+static lv_obj_t *g_set;
+static Row g_gr_wifi, g_gr_addr, g_gr_ip, g_gr_ver, g_gr_up, g_gr_fw, g_gr_mscr, g_gr_upd;
+
+static const char *reset_text(bd_reset r) {
+  switch (r) {
+    case BD_RESET_POWER_ON: case BD_RESET_PIN: case BD_RESET_USB: return "since power-on";
+    case BD_RESET_SOFTWARE: return "after a restart";
+    case BD_RESET_CRASH: return "after a crash";
+    case BD_RESET_WATCHDOG: return "after a freeze";
+    case BD_RESET_BROWNOUT: return "after a power dip";
+    default: return "";
+  }
+}
+static void settings_update(void) {
+  const bd_network *n = bd_network_state();
+  const bd_machine *m = bd_machine_state();
+  const bd_core_info *c = bd_core();
+  char b[96];
+  if (n->ssid[0]) snprintf(b, sizeof b, "%s%s%d dBm", n->ssid, DOT, n->rssi);
+  else snprintf(b, sizeof b, "%s", n->target[0] ? "not connected" : "none set up");
+  row_set(&g_gr_wifi, b);
+  row_set(&g_gr_addr, n->machine_addr[0] ? n->machine_addr : DASH);
+  row_set(&g_gr_ip, n->screen_ip[0] ? n->screen_ip : DASH);
+  snprintf(b, sizeof b, "%s%score %s", BD_UI.version, DOT, c->version[0] ? c->version : c->build);
+  row_set(&g_gr_ver, b);
+  const uint32_t up = c->uptime_s;
+  if (up < 3600) snprintf(b, sizeof b, "%lu min%s%s", (unsigned long)(up / 60), DOT, reset_text(c->reset));
+  else snprintf(b, sizeof b, "%lu h %lu min%s%s", (unsigned long)(up / 3600), (unsigned long)(up / 60 % 60), DOT, reset_text(c->reset));
+  row_set(&g_gr_up, b);
+  if (m->core_version[0]) snprintf(b, sizeof b, "%s%s%s", m->core_version, m->core_board[0] ? DOT : "", m->core_board);
+  else snprintf(b, sizeof b, "%s", DASH);
+  row_set(&g_gr_fw, b);
+  if (m->screen_version[0] || m->web_version[0])
+    snprintf(b, sizeof b, "%s%s%s", m->screen_version[0] ? m->screen_version : DASH, DOT, m->web_version[0] ? m->web_version : DASH);
+  else snprintf(b, sizeof b, "%s", DASH);
+  row_set(&g_gr_mscr, b);
+  if (m->update_available) snprintf(b, sizeof b, "%s%sinstall it in the web UI", m->update[0] ? m->update : "available", DOT);
+  else snprintf(b, sizeof b, "none");
+  row_set(&g_gr_upd, b);
+  lv_obj_set_style_text_color(g_gr_upd.val, m->update_available ? ACCENT : MUTED, 0);
+}
+static void open_settings(lv_event_t *e) {
+  (void)e;
+  settings_update();
+  lv_obj_remove_flag(g_set, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_to_index(g_set, -1);
+}
+static void build_settings(lv_obj_t *scr) {
+  g_set = layer(scr);
+  g_gh = header(g_set);
+  set_text(g_gh.left, "SETTINGS");
+  lv_obj_t *col = column(g_set, 24, 66, 752);
+  row_init(&g_gr_wifi, col, "Wi-Fi", true, open_wifi);
+  row_init(&g_gr_addr, col, "Machine address", true, open_addr);
+  row_init(&g_gr_ip, col, "Screen address", false, NULL);
+  row_init(&g_gr_ver, col, "Ledger", false, NULL);
+  row_init(&g_gr_up, col, "Running for", false, NULL);
+  row_init(&g_gr_fw, col, "Machine firmware", false, NULL);
+  row_init(&g_gr_mscr, col, "Machine screen, web UI", false, NULL);
+  row_init(&g_gr_upd, col, "Machine update", false, NULL);
+  Row *rows[] = {&g_gr_wifi, &g_gr_addr, &g_gr_ip, &g_gr_ver, &g_gr_up, &g_gr_fw, &g_gr_mscr, &g_gr_upd};
+  for (Row *r : rows) { r->w = 752; lv_obj_set_width(r->row, 752); one_line(r->val, 480); row_fit(r); }
+  lv_obj_t *n = text(g_set, &lg_400_17, MUTED, "Unofficial: not made by or affiliated with the Gaggiuino project.");
+  lv_obj_set_pos(n, 24, 422);
+  lv_obj_t *bar = button_bar(g_set);
+  lv_obj_set_width(bar, LV_SIZE_CONTENT);
+  lv_obj_align(bar, LV_ALIGN_BOTTOM_RIGHT, -24, -24);
+  button(bar, "Close", close_layer, g_set);
+  lv_obj_add_flag(g_set, LV_OBJ_FLAG_HIDDEN);
+}
+
 // ---- Standby -------------------------------------------------------------------------------------------------------
 // Dim: after DIM_MS without a touch and nothing running, an idle page (clock, boiler, state) at half brightness; it
 // moves a little every 2 min against image retention. Off: after OFF_MS without a touch, or OFF_AWAY_MS untouched while
@@ -1301,6 +1379,7 @@ void bd_ui_init(void) {
   build_brew(scr);
   build_profiles(scr);
   build_edit(scr);
+  build_settings(scr);   // under the Wi-Fi page and the keyboard it opens
   build_wifi(scr);
   build_kbd(scr);
   build_standby(scr);
@@ -1316,7 +1395,7 @@ void bd_ui_tick(uint32_t now) {
   if (bd_seq_machine() != seen_m) { seen_m = bd_seq_machine(); update_ready(m); }
   if (bd_seq_shape() != seen_shape) {
     seen_shape = bd_seq_shape();
-    g_pv_ok = g_pv && bd_active_shape()->id && bd_profile_preview(bd_active_shape(), 400, 110, g_pv);
+    g_pv_ok = g_pv && bd_active_shape()->id && bd_profile_preview(bd_active_shape(), PLAN_W, 110, g_pv);
     lv_obj_invalidate(g_plan);
     update_ready(m);
   }
@@ -1332,6 +1411,8 @@ void bd_ui_tick(uint32_t now) {
   else if (steaming) steam_step(m);
   else if (g_steam_shown) steam_close();
   offline_step(m);
+  static uint32_t set_upd;
+  if (!lv_obj_has_flag(g_set, LV_OBJ_FLAG_HIDDEN) && now - set_upd > 1000) { set_upd = now; settings_update(); }
   if (g_forget_at && g_now - g_forget_at > 3000) {   // "Tap again to forget" lasts 3 s
     g_forget_at = 0;
     set_text(lv_obj_get_child(g_wforget, 0), "Forget network");
