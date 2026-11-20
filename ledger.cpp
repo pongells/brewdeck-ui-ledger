@@ -198,7 +198,7 @@ static const char *result_text(bd_result r) {
 
 // ---- Ready ---------------------------------------------------------------------------------------------------------
 static Header g_rh;
-static lv_obj_t *g_temp, *g_temp_unit, *g_plan, *g_flush_lbl, *g_note;
+static lv_obj_t *g_temp, *g_temp_unit, *g_plan, *g_flush_btn, *g_flush_lbl, *g_note;
 static Row g_r_prof, g_r_temp, g_r_stop, g_r_press, g_r_scale, g_r_water;
 static bd_preview *g_pv;   // the active profile's plan (PSRAM)
 static bool g_pv_ok;
@@ -310,6 +310,7 @@ static void build_ready(lv_obj_t *scr) {
   lv_obj_set_width(bf, 132);   // fixed: "Flushing" must not move it
   lv_obj_add_event_cb(bf, on_flush, LV_EVENT_SHORT_CLICKED, NULL);
   lv_obj_add_event_cb(bf, on_flush, LV_EVENT_LONG_PRESSED, NULL);
+  g_flush_btn = bf;
   g_flush_lbl = lv_obj_get_child(bf, 0);
   lv_obj_align_to(bf, bp, LV_ALIGN_OUT_LEFT_MID, -16, 0);
 }
@@ -339,6 +340,15 @@ static void update_ready(const bd_machine *m) {
   const bool mode_on = !strcmp(m->mode, "FLUSH");   // checked first: readiness says FLUSHING in flush mode too
   const bool flushing = !strcmp(m->mode, "FLUSH_AUTO") || (!mode_on && m->readiness == BD_RD_FLUSHING);
   set_text(g_flush_lbl, mode_on ? "Flush on" : (flushing ? "Flushing" : "Flush"));
+  static int red = -1;   // red (the accent) while flush mode is on or water runs, outlined otherwise
+  if (red != (mode_on || flushing)) {
+    red = mode_on || flushing;
+    lv_obj_set_style_bg_color(g_flush_btn, ACCENT, 0);
+    lv_obj_set_style_bg_opa(g_flush_btn, red ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(g_flush_btn, red ? ACCENT : INK, 0);
+    lv_obj_set_style_text_color(g_flush_lbl, red ? PAPER : INK, 0);
+    lv_obj_set_style_bg_color(g_flush_btn, red ? lv_color_hex(0x9E2F16) : PRESSED, LV_STATE_PRESSED);
+  }
 }
 
 static void update_clock(void) {
