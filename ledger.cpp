@@ -1268,6 +1268,59 @@ static void build_settings(lv_obj_t *scr) {
   lv_obj_add_flag(g_set, LV_OBJ_FLAG_HIDDEN);
 }
 
+// ---- Pressure release ----------------------------------------------------------------------------------------------
+// The machine counts down ("Dropping beats in: 3 / 2 / 1 / 0") before it releases pressure through the group: water
+// comes out. A red bar over the top and a red frame round the screen, pulsing on each beat, on LVGL's top layer (over
+// every page and the idle clock; taps pass through). It stays 2.5 s after the last beat, 5 s after "Releasing".
+static lv_obj_t *g_rel_frame, *g_rel_bar, *g_rel_text;
+static uint32_t g_rel_until;
+
+static void rel_border(void *o, int32_t v) { lv_obj_set_style_border_width((lv_obj_t *)o, v, 0); }
+static void build_release(void) {
+  lv_obj_t *top = lv_layer_top();
+  g_rel_frame = lv_obj_create(top);
+  lv_obj_remove_style_all(g_rel_frame);
+  lv_obj_set_size(g_rel_frame, 800, 480);
+  lv_obj_set_style_border_color(g_rel_frame, ACCENT, 0);
+  lv_obj_set_style_border_width(g_rel_frame, 8, 0);
+  lv_obj_remove_flag(g_rel_frame, LV_OBJ_FLAG_CLICKABLE);
+  g_rel_bar = rule(top, 0, 0, 800, 56, ACCENT);
+  lv_obj_remove_flag(g_rel_bar, LV_OBJ_FLAG_CLICKABLE);
+  g_rel_text = text(g_rel_bar, &lg_mono_14, PAPER, "");
+  lv_obj_set_style_text_font(g_rel_text, &lg_600_24, 0);
+  lv_obj_set_style_text_letter_space(g_rel_text, 0, 0);
+  lv_obj_align(g_rel_text, LV_ALIGN_LEFT_MID, 24, 0);
+  lv_obj_add_flag(g_rel_frame, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(g_rel_bar, LV_OBJ_FLAG_HIDDEN);
+}
+static void release_event(int count) {
+  char b[64];
+  if (count >= 0) {
+    snprintf(b, sizeof b, "Water coming: pressure release in %d", count);
+    g_rel_until = (g_now + 2500) | 1;
+  } else {
+    snprintf(b, sizeof b, "Releasing pressure: water coming");
+    g_rel_until = (g_now + 5000) | 1;
+  }
+  set_text(g_rel_text, b);
+  lv_obj_remove_flag(g_rel_frame, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(g_rel_bar, LV_OBJ_FLAG_HIDDEN);
+  lv_anim_t a;   // the beat: the frame thick, then back to 8 px
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, g_rel_frame);
+  lv_anim_set_exec_cb(&a, rel_border);
+  lv_anim_set_values(&a, 22, 8);
+  lv_anim_set_duration(&a, 700);
+  lv_anim_start(&a);
+}
+static void release_step(void) {
+  if (g_rel_until && (int32_t)(g_now - g_rel_until) > 0) {
+    g_rel_until = 0;
+    lv_obj_add_flag(g_rel_frame, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(g_rel_bar, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 // ---- Standby -------------------------------------------------------------------------------------------------------
 // Dim: after DIM_MS without a touch and nothing running, an idle page (clock, boiler, state) at half brightness; it
 // moves a little every 2 min against image retention. Off: after OFF_MS without a touch, or OFF_AWAY_MS untouched while
@@ -1388,6 +1441,7 @@ void bd_ui_init(void) {
   build_kbd(scr);
   build_standby(scr);
   build_splash(scr);
+  build_release();
 }
 
 void bd_ui_tick(uint32_t now) {
@@ -1422,6 +1476,7 @@ void bd_ui_tick(uint32_t now) {
     lv_obj_set_style_text_color(lv_obj_get_child(g_wforget, 0), INK, 0);
   }
   standby_step(m);
+  release_step();
   bd_lvgl9_tick(now);
 }
 
@@ -1453,6 +1508,7 @@ void bd_ui_event(const bd_event *e) {
       } else if (e->u.join.state == BD_JOIN_FAILED) set_text(h->right, kb ? "NOT JOINED Â· CHECK THE PASSWORD" : "NOT JOINED");
       break;
     }
+    case BD_EV_PRESSURE_RELEASE: standby_wake(); release_event(e->u.release.count); break;
     case BD_EV_COMMAND:
       if (e->u.command.answer != BD_ANSWER_OK) note("THE MACHINE DID NOT TAKE IT");
       break;

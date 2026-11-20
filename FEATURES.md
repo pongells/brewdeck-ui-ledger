@@ -83,7 +83,7 @@ Each line has an ID (`R1`, `B2`, ...) so a later standard test list can refer to
 | M2 | Steam: Refill warning when water is low | missing | | water value shown, not highlighted |
 | F1 | Tap Flush: flush mode on / off | done | yes | red "Flush on" |
 | F2 | Hold Flush: timed flush | done | yes | red "Flushing"; no fill while holding, no seconds count |
-| N1 | Pressure-release warning (glowing edges, pulses on each beat) | missing | | core: BD_EV_PRESSURE_RELEASE |
+| N1 | Pressure-release warning (glowing edges, pulses on each beat) | done | | red bar "Water coming: pressure release in N" + red frame pulsing on each beat, over every page and the idle clock; 5 s after "Releasing"; wakes the screen |
 | N2 | Machine notices as a 5 s banner, bell with the last 10 | missing | | core: BD_EV_NOTICE |
 | N3 | Update available notice, kept in About | partial | | on Settings (Machine update); no banner |
 
@@ -119,7 +119,7 @@ Each line has an ID (`R1`, `B2`, ...) so a later standard test list can refer to
 
 Done or mostly done: start-up, Ready values, profile pick, brew temp / stop weight editing (basic), the live shot,
 steam, flush, standby (dim / screen off), offline help and Wi-Fi setup. Missing, roughly by how much a daily user
-would miss them: notices and the pressure-release warning, the shot review with the previous shot, shot history, the menu (display settings, about),
+would miss them: notices, the shot review with the previous shot, shot history, the menu (display settings, about),
 profile originals.
 
 ## Towards standard UI tests (to design later)
