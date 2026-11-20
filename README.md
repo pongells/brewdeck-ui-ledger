@@ -17,6 +17,10 @@ Unofficial: not made by or affiliated with the Gaggiuino project.
   machine's boot profile).
 - **Editor:** brew temperature (1-105 °C) or stop weight (0-200 g, 0 = none) with − / +, saved on the machine.
 - **Splash:** 5 s at start (or a tap), with the not-affiliated line.
+- **Standby:** after 10 min without a touch, a clock with the boiler and state at half brightness; after 30 min (or
+  2 min untouched while the machine is unreachable) the screen goes black and off. A touch, a shot, steam, a flush or
+  a machine notice wakes it (the first touch only wakes). Emulator: `LEDGER_DIM_S=8 LEDGER_OFF_S=16 ./emu.sh` to try
+  it quickly.
 
 ## Build
 

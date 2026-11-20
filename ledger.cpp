@@ -5,6 +5,7 @@
 // Everything runs on the UI task (see brewdeck_core.h). Build: ./emu.sh (emulator) or ./fw.sh <env> (firmware).
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "bd_lvgl9.h"
 
@@ -836,6 +837,108 @@ static void build_splash(lv_obj_t *scr) {
   g_splash_until = 0;   // set on the first tick: the UI starts ~2.5 s after boot
 }
 
+// ---- Standby -------------------------------------------------------------------------------------------------------
+// Dim: after DIM_MS without a touch and nothing running, an idle page (clock, boiler, state) at half brightness; it
+// moves a little every 2 min against image retention. Off: after OFF_MS without a touch, or OFF_AWAY_MS untouched while
+// the machine is unreachable (switched off at night): black and backlight 0. A running shot / steam / flush counts as
+// activity. Wake: a touch (the first one only wakes: the page on top takes it), bd_ui_wake (the core: shot, steam,
+// flush, a notice), or the machine answering again when it was away.
+static uint32_t DIM_MS = 10 * 60000, OFF_MS = 30 * 60000, OFF_AWAY_MS = 2 * 60000;
+#define BL_ON 100
+#define BL_DIM 50
+static lv_obj_t *g_idle, *g_idle_box, *g_idle_clock, *g_idle_line, *g_off;
+static int g_sb;   // 0 awake, 1 dim (idle page), 2 off
+static bool g_off_away;
+static uint32_t g_away_since, g_idle_moved;
+
+static void standby_wake(void) {
+  if (!g_sb) return;
+  lv_obj_add_flag(g_idle, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(g_off, LV_OBJ_FLAG_HIDDEN);
+  g_sb = 0;
+  bd_set_backlight(BL_ON);
+  lv_display_trigger_activity(NULL);
+  bd_log("ledger: screen on");
+}
+static void on_standby_tap(lv_event_t *e) { (void)e; standby_wake(); }
+
+static void idle_update(const bd_machine *m) {
+  char b[64];
+  int h, mi, wd;
+  if (bd_local_time(&h, &mi, &wd)) snprintf(b, sizeof b, "%02d:%02d", h, mi); else snprintf(b, sizeof b, "--:--");
+  set_text(g_idle_clock, b);
+  if (m->link == BD_LINK_ONLINE) snprintf(b, sizeof b, "%.1f %sC%s%s", m->temperature, DEG, DOT, state_word(m));
+  else snprintf(b, sizeof b, "%s", state_word(m));
+  set_text(g_idle_line, b);
+}
+static void idle_move(void) {   // a new spot within +-24 px of the centre
+  lv_obj_align(g_idle_box, LV_ALIGN_CENTER, (rand() % 49) - 24, (rand() % 49) - 24);
+  g_idle_moved = g_now;
+}
+
+static void build_standby(lv_obj_t *scr) {
+  g_idle = layer(scr);
+  lv_obj_add_flag(g_idle, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(g_idle, on_standby_tap, LV_EVENT_CLICKED, NULL);
+  g_idle_box = lv_obj_create(g_idle);
+  lv_obj_remove_style_all(g_idle_box);
+  lv_obj_set_size(g_idle_box, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(g_idle_box, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(g_idle_box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_remove_flag(g_idle_box, LV_OBJ_FLAG_CLICKABLE);
+  g_idle_clock = text(g_idle_box, &lg_c300_220, INK, "--:--");
+  lv_obj_set_style_text_letter_space(g_idle_clock, -4, 0);
+  g_idle_line = text(g_idle_box, &lg_mono_14, ACCENT, "");
+  lv_obj_align(g_idle_box, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_add_flag(g_idle, LV_OBJ_FLAG_HIDDEN);
+  g_off = layer(scr);
+  lv_obj_set_style_bg_color(g_off, lv_color_black(), 0);
+  lv_obj_add_flag(g_off, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(g_off, on_standby_tap, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_flag(g_off, LV_OBJ_FLAG_HIDDEN);
+#ifdef LV_SIM_HOST   // emulator: LEDGER_DIM_S / LEDGER_OFF_S / LEDGER_AWAY_S shorten the times for testing
+  if (getenv("LEDGER_DIM_S")) DIM_MS = atoi(getenv("LEDGER_DIM_S")) * 1000u;
+  if (getenv("LEDGER_OFF_S")) OFF_MS = atoi(getenv("LEDGER_OFF_S")) * 1000u;
+  if (getenv("LEDGER_AWAY_S")) OFF_AWAY_MS = atoi(getenv("LEDGER_AWAY_S")) * 1000u;
+#endif
+}
+
+static bool running(const bd_machine *m) {
+  return m->brewing || m->steaming || m->hot_water || !strncmp(m->mode, "FLUSH", 5) || !strcmp(m->mode, "STEAM") ||
+         (g_brewing_shown && !g_brew_done_at);
+}
+
+static void standby_step(const bd_machine *m) {
+  if (running(m)) { lv_display_trigger_activity(NULL); standby_wake(); return; }
+  const bool away = m->link != BD_LINK_ONLINE;
+  if (!away) g_away_since = 0; else if (!g_away_since) g_away_since = g_now | 1;
+  if (g_sb == 2 && g_off_away && !away) { standby_wake(); return; }   // the machine is back
+  const uint32_t still = lv_display_get_inactive_time(NULL);
+  if (g_sb < 2 && (still > OFF_MS || (away && g_now - g_away_since > OFF_AWAY_MS && still > OFF_AWAY_MS))) {
+    g_sb = 2;
+    g_off_away = still <= OFF_MS;
+    lv_obj_add_flag(g_idle, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(g_off, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_to_index(g_off, -1);
+    lv_refr_now(NULL);   // black on the panel before the backlight goes (no picture held)
+    bd_set_backlight(0);
+    bd_log("ledger: screen off%s", g_off_away ? " (machine away)" : "");
+    return;
+  }
+  if (g_sb == 0 && still > DIM_MS) {
+    g_sb = 1;
+    idle_update(m);
+    idle_move();
+    lv_obj_remove_flag(g_idle, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_to_index(g_idle, -1);
+    bd_set_backlight(BL_DIM);
+    bd_log("ledger: idle clock");
+  }
+  if (g_sb == 1 && g_now - g_idle_moved > 120000) idle_move();
+  static uint32_t upd;
+  if (g_sb == 1 && g_now - upd > 1000) { upd = g_now; idle_update(m); }
+}
+
 // ---- what the core calls -------------------------------------------------------------------------------------------
 void bd_ui_init(void) {
   bd_lvgl9_setup();
@@ -848,6 +951,7 @@ void bd_ui_init(void) {
   build_brew(scr);
   build_profiles(scr);
   build_edit(scr);
+  build_standby(scr);
   build_splash(scr);
 }
 
@@ -875,6 +979,7 @@ void bd_ui_tick(uint32_t now) {
   if (steaming && !g_steam_shown) steam_open(m);
   else if (steaming) steam_step(m);
   else if (g_steam_shown) steam_close();
+  standby_step(m);
   bd_lvgl9_tick(now);
 }
 
@@ -895,4 +1000,4 @@ void bd_ui_event(const bd_event *e) {
   }
 }
 
-void bd_ui_wake(void) {}
+void bd_ui_wake(void) { standby_wake(); }

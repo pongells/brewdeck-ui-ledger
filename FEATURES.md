@@ -91,10 +91,10 @@ Each line has an ID (`R1`, `B2`, ...) so a later standard test list can refer to
 
 | ID | Feature (Brewdeck) | Ledger | Panel | Notes |
 |---|---|---|---|---|
-| I1 | Idle clock after "Dim after" (default 10 min), dimmed | missing | | Ledger stays at full brightness forever |
-| I2 | Still / Bouncing idle clock | missing | | |
-| I3 | Screen off after 30 min, or 2 min on the offline screen | missing | | |
-| I4 | Wake on touch, shot, steam, flush, notice, machine back | missing | | bd_ui_wake is empty |
+| I1 | Idle clock after "Dim after" (default 10 min), dimmed | done | | 10 min fixed (no setting); clock, boiler and state at 50 % backlight; the first touch only wakes |
+| I2 | Still / Bouncing idle clock | partial | | still only: moves up to 24 px every 2 min against retention |
+| I3 | Screen off after 30 min, or 2 min on the offline screen | done | | 2 min untouched while the machine is unreachable |
+| I4 | Wake on touch, shot, steam, flush, notice, machine back | done | | bd_ui_wake + a running shot / steam / flush; machine back only when it went off because the machine was away |
 
 ## Menu and settings
 
@@ -118,8 +118,7 @@ Each line has an ID (`R1`, `B2`, ...) so a later standard test list can refer to
 ## Summary
 
 Done or mostly done: start-up, Ready values, profile pick, brew temp / stop weight editing (basic), the live shot,
-steam, flush. Missing, roughly by how much a daily user would miss them: standby (dim / screen off: also against
-image retention), offline help and Wi-Fi setup (needed by anyone who is not already set up), notices and the
+steam, flush, standby (dim / screen off). Missing, roughly by how much a daily user would miss them: offline help and Wi-Fi setup (needed by anyone who is not already set up), notices and the
 pressure-release warning, the shot review with the previous shot, shot history, the menu (display settings, about),
 profile originals.
 
