@@ -6,4 +6,4 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BD="${BREWDECK:-$HERE/../gaggi-screen}"
 UI="$HERE" "$BD/sim/build-emu.sh"
-[[ "${1:-}" == build ]] || exec "$BD/sim/emu-brewdeck-ledger"
+[[ "${1:-}" == build ]] || exec "$BD/sim/emu-$(basename "$HERE")"
