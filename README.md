@@ -34,6 +34,7 @@ Archivo (condensed for the big numbers) and IBM Plex Mono, both under the SIL Op
 `tools/make_fonts.sh` converts them to LVGL fonts in `fonts/` (needs uv and Node). Each font holds only the
 characters listed in that script: add a character there before using it in the UI.
 
-## Not yet
+## Compared with Brewdeck's UI
 
-Notices, the shot review / previous shot, steam screen, Wi-Fi setup, dimming and screen-off, offline help.
+[FEATURES.md](FEATURES.md): every feature of Brewdeck's own UI, with what Ledger has, lacks, and what was seen on
+the panel.
