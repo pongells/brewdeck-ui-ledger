@@ -211,7 +211,7 @@ static const char *result_text(bd_result r) {
 }
 
 // ---- Ready ---------------------------------------------------------------------------------------------------------
-static Header g_rh, g_sh, g_oh;   // Ready and Steam headers (the clock is on both)
+static Header g_rh, g_sh, g_oh;   // Ready, Steam and Offline headers
 static lv_obj_t *g_temp, *g_temp_unit, *g_plan, *g_flush_btn, *g_flush_lbl, *g_note;
 static Row g_r_prof, g_r_temp, g_r_stop, g_r_press, g_r_scale, g_r_water;
 static bd_preview *g_pv;   // the active profile's plan (PSRAM)
@@ -285,7 +285,7 @@ static void on_flush(lv_event_t *e) {
 static void build_ready(lv_obj_t *scr) {
   g_ready = layer(scr);
   g_rh = header(g_ready);
-  // SETTINGS at the right of the header, the clock left of it; the touch area covers the header's height
+  // SETTINGS at the right of the header; the touch area covers the header's height
   lv_obj_t *sb = lv_obj_create(g_ready);
   lv_obj_remove_style_all(sb);
   lv_obj_set_size(sb, LV_SIZE_CONTENT, 50);
@@ -379,16 +379,6 @@ static void update_ready(const bd_machine *m) {
     lv_obj_set_style_text_color(g_flush_lbl, red ? PAPER : INK, 0);
     lv_obj_set_style_bg_color(g_flush_btn, red ? lv_color_hex(0x9E2F16) : PRESSED, LV_STATE_PRESSED);
   }
-}
-
-static void update_clock(void) {
-  static const char *DAY[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
-  int h, mi, wd;
-  char b[24] = "";
-  if (bd_local_time(&h, &mi, &wd)) snprintf(b, sizeof b, "%s%s%02d:%02d", DAY[wd % 7], DOT, h, mi);
-  set_text(g_rh.right, b);
-  set_text(g_sh.right, b);
-  set_text(g_oh.right, b);
 }
 
 // ---- Brewing -------------------------------------------------------------------------------------------------------
@@ -1401,7 +1391,7 @@ void bd_ui_init(void) {
 }
 
 void bd_ui_tick(uint32_t now) {
-  static uint32_t seen_m = ~0u, seen_shape = ~0u, seen_p = ~0u, last_clock;
+  static uint32_t seen_m = ~0u, seen_shape = ~0u, seen_p = ~0u;
   g_now = now;
   if (g_splash && !g_splash_until) g_splash_until = (now + 5000) | 1;   // 5 s from when it is first shown
   if (g_splash && (int32_t)(now - g_splash_until) > 0) splash_close(NULL);
@@ -1417,7 +1407,6 @@ void bd_ui_tick(uint32_t now) {
     seen_p = bd_seq_profiles();
     if (!lv_obj_has_flag(g_prof, LV_OBJ_FLAG_HIDDEN)) fill_profiles();
   }
-  if (now - last_clock > 1000) { last_clock = now; update_clock(); }
   if (g_note_until && now > g_note_until) { g_note_until = 0; lv_obj_add_flag(g_note, LV_OBJ_FLAG_HIDDEN); }
   if (g_brewing_shown && g_brew_done_at && now - g_brew_done_at > 60000) brew_close(NULL);
   const bool steaming = m->link == BD_LINK_ONLINE && (m->steaming || !strcmp(m->mode, "STEAM"));

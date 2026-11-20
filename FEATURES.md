@@ -27,7 +27,7 @@ Each line has an ID (`R1`, `B2`, ...) so a later standard test list can refer to
 | R8 | Pressure, scale (type, connected), water | done | yes | as ledger rows; pressure clamped to 0-20 bar |
 | R9 | Pressure warning (orange while pressure is left in the system) | missing | | |
 | R10 | No scale (orange), Refill below 20 % (orange) | missing | | values are shown, never highlighted |
-| R11 | Clock | done | yes | in the header (Brewdeck shows it on the idle clock) |
+| R11 | Clock | done | | only on the idle clock, like Brewdeck (no clock in the headers) |
 
 ## Brew temperature and stop weight
 
