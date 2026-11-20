@@ -161,8 +161,10 @@ static const char *state_word(const bd_machine *m) {
   if (m->brewing) return "BREWING";
   if (m->steaming) return "STEAM";
   if (m->hot_water) return "HOT WATER";
-  if (!strncmp(m->mode, "FLUSH", 5)) return "FLUSH";
+  if (!strcmp(m->mode, "FLUSH_AUTO") || m->readiness == BD_RD_FLUSHING) return "FLUSHING";
+  if (!strcmp(m->mode, "FLUSH")) return "FLUSH MODE \xC2\xB7 THE BREW SWITCH FLUSHES";
   switch (m->readiness) {
+    case BD_RD_STEAMING: return "STEAM";
     case BD_RD_READY: return "READY";
     case BD_RD_HEATING: return "HEATING";
     case BD_RD_WARMING: return "WARMING UP";
@@ -253,9 +255,11 @@ static void plan_draw(lv_event_t *e) {
 static void open_profiles(lv_event_t *e);
 static void open_edit_temp(lv_event_t *e);
 static void open_edit_stop(lv_event_t *e);
+// tap: flush mode on / off; hold: the machine's timed flush. The tap is SHORT_CLICKED: LVGL also sends CLICKED on
+// the release after a hold, which turned the timed flush straight off again.
 static void on_flush(lv_event_t *e) {
   const bd_machine *m = bd_machine_state();
-  const bool on = !strncmp(m->mode, "FLUSH", 5);
+  const bool on = !strncmp(m->mode, "FLUSH", 5) || m->readiness == BD_RD_FLUSHING;
   const bd_result r = bd_flush_mode(lv_event_get_code(e) == LV_EVENT_LONG_PRESSED ? BD_FLUSH_TIMED : (on ? BD_FLUSH_OFF : BD_FLUSH_ON));
   if (r != BD_OK) note(result_text(r));
 }
@@ -300,7 +304,9 @@ static void build_ready(lv_obj_t *scr) {
 
   lv_obj_t *bp = button(g_ready, "Profiles", open_profiles, NULL);
   lv_obj_align(bp, LV_ALIGN_BOTTOM_RIGHT, -24, -24);
-  lv_obj_t *bf = button(g_ready, "Flush", on_flush, NULL);
+  lv_obj_t *bf = button(g_ready, "Flush", NULL, NULL);
+  lv_obj_set_width(bf, 132);   // fixed: "Flushing" must not move it
+  lv_obj_add_event_cb(bf, on_flush, LV_EVENT_SHORT_CLICKED, NULL);
   lv_obj_add_event_cb(bf, on_flush, LV_EVENT_LONG_PRESSED, NULL);
   g_flush_lbl = lv_obj_get_child(bf, 0);
   lv_obj_align_to(bf, bp, LV_ALIGN_OUT_LEFT_MID, -16, 0);
@@ -328,7 +334,8 @@ static void update_ready(const bd_machine *m) {
   row_set(&g_r_scale, b);
   if (on) snprintf(b, sizeof b, "%d %%", m->water_level); else snprintf(b, sizeof b, "%s", DASH);
   row_set(&g_r_water, b);
-  set_text(g_flush_lbl, !strcmp(m->mode, "FLUSH_AUTO") ? "Flushing" : (!strcmp(m->mode, "FLUSH") ? "Flush on" : "Flush"));
+  const bool flushing = !strcmp(m->mode, "FLUSH_AUTO") || m->readiness == BD_RD_FLUSHING;
+  set_text(g_flush_lbl, flushing ? "Flushing" : (!strcmp(m->mode, "FLUSH") ? "Flush on" : "Flush"));
 }
 
 static void update_clock(void) {
