@@ -11,7 +11,7 @@ Each line has an ID (`R1`, `B2`, ...) so a later standard test list can refer to
 | ID | Feature (Brewdeck) | Ledger | Panel | Notes |
 |---|---|---|---|---|
 | S1 | Splash 5 s, tap skips, with the not-affiliated line | done | yes | no setting to turn it off (Brewdeck: Display > Splash at start) |
-| S2 | Shows what it is doing while the machine is not reachable yet | partial | yes | header word only (CONNECTING / MACHINE NOT FOUND / NO WI-FI); see Offline |
+| S2 | Shows what it is doing while the machine is not reachable yet | done | | the offline page (O1) |
 
 ## Ready
 
@@ -109,17 +109,17 @@ Each line has an ID (`R1`, `B2`, ...) so a later standard test list can refer to
 
 | ID | Feature (Brewdeck) | Ledger | Panel | Notes |
 |---|---|---|---|---|
-| W1 | Wi-Fi list, join with an on-screen keyboard | missing | | Ledger can only use a network already saved (by Brewdeck or wifi_config.h) |
-| W2 | Network details, Forget | missing | | |
-| W3 | Machine address (name or IP) | missing | | |
-| O1 | Offline screen after 5 s: what it is doing, then after 20 s what is wrong, with buttons | partial | yes | header word only; values become dashes; no buttons, no help |
-| O2 | Never covers a running shot or the review | done | | there is no offline screen to cover them |
+| W1 | Wi-Fi list, join with an on-screen keyboard | done | | letters, shift (one character), two symbol layers; all printable ASCII; Join from 8 characters; open networks join at once |
+| W2 | Network details, Forget | partial | | Forget (two taps) on the Wi-Fi page; details (screen IP, network and signal, machine address) only on the offline page |
+| W3 | Machine address (name or IP) | done | | keyboard, prefilled with the current address |
+| O1 | Offline screen after 5 s: what it is doing, then after 20 s what is wrong, with buttons | done | | text page (no picture): joining / not connected (why), looking / not found (why), no Wi-Fi set up; Try again, Machine address, Wi-Fi settings |
+| O2 | Never covers a running shot or the review | done | | not opened while Brewing or Steam is shown |
 
 ## Summary
 
 Done or mostly done: start-up, Ready values, profile pick, brew temp / stop weight editing (basic), the live shot,
-steam, flush, standby (dim / screen off). Missing, roughly by how much a daily user would miss them: offline help and Wi-Fi setup (needed by anyone who is not already set up), notices and the
-pressure-release warning, the shot review with the previous shot, shot history, the menu (display settings, about),
+steam, flush, standby (dim / screen off), offline help and Wi-Fi setup. Missing, roughly by how much a daily user
+would miss them: notices and the pressure-release warning, the shot review with the previous shot, shot history, the menu (display settings, about),
 profile originals.
 
 ## Towards standard UI tests (to design later)
