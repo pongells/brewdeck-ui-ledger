@@ -833,7 +833,7 @@ static void build_splash(lv_obj_t *scr) {
   lv_obj_set_pos(n, 24, 344);
   rule(g_splash, 24, 426, 752, 2, INK);
   lv_obj_set_pos(text(g_splash, &lg_mono_13, INK, "VERSION 0.1"), 24, 440);
-  g_splash_until = 3000;
+  g_splash_until = 0;   // set on the first tick: the UI starts ~2.5 s after boot
 }
 
 // ---- what the core calls -------------------------------------------------------------------------------------------
@@ -854,7 +854,8 @@ void bd_ui_init(void) {
 void bd_ui_tick(uint32_t now) {
   static uint32_t seen_m = ~0u, seen_shape = ~0u, seen_p = ~0u, last_clock;
   g_now = now;
-  if (g_splash && now > g_splash_until) splash_close(NULL);
+  if (g_splash && !g_splash_until) g_splash_until = (now + 5000) | 1;   // 5 s from when it is first shown
+  if (g_splash && (int32_t)(now - g_splash_until) > 0) splash_close(NULL);
   const bd_machine *m = bd_machine_state();
   if (bd_seq_machine() != seen_m) { seen_m = bd_seq_machine(); update_ready(m); }
   if (bd_seq_shape() != seen_shape) {

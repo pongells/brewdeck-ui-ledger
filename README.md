@@ -16,7 +16,7 @@ Unofficial: not made by or affiliated with the Gaggiuino project.
 - **Profiles:** every profile with its brew temperature and stop weight; a tap selects it (and saves it as the
   machine's boot profile).
 - **Editor:** brew temperature (1-105 °C) or stop weight (0-200 g, 0 = none) with − / +, saved on the machine.
-- **Splash:** 3 s at start, with the not-affiliated line.
+- **Splash:** 5 s at start (or a tap), with the not-affiliated line.
 
 ## Build
 
