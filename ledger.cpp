@@ -95,6 +95,13 @@ static void upper(char *dst, size_t cap, const char *src) {
   dst[i] = 0;
 }
 
+// one line, "..." when too long: LVGL's dots mode still wraps unless the label is exactly one line tall
+static void one_line(lv_obj_t *l, int max_w) {
+  lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
+  lv_obj_set_style_max_width(l, max_w, 0);
+  lv_obj_set_height(l, lv_font_get_line_height(lv_obj_get_style_text_font(l, LV_PART_MAIN)));
+}
+
 // the header of every page: a state word in the accent on the left, mono text on the right, a 2 px rule under them
 typedef struct { lv_obj_t *left, *right; } Header;
 static Header header(lv_obj_t *p) {
@@ -292,8 +299,7 @@ static void build_ready(lv_obj_t *scr) {
   lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
   lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
   row_init(&g_r_prof, col, "Profile", true, open_profiles);
-  lv_label_set_long_mode(g_r_prof.val, LV_LABEL_LONG_MODE_DOTS);
-  lv_obj_set_style_max_width(g_r_prof.val, 230, 0);
+  one_line(g_r_prof.val, 230);
   row_init(&g_r_temp, col, "Brew temp", true, open_edit_temp);
   row_init(&g_r_stop, col, "Stop weight", true, open_edit_stop);
   row_init(&g_r_press, col, "Pressure", false, NULL);
@@ -696,13 +702,12 @@ static void fill_profiles(void) {
     Row *r = &g_prows[i];
     row_init(r, g_plist, "", true, NULL);
     lv_obj_set_size(r->row, 752, 52);
-    lv_label_set_long_mode(r->name, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_style_max_width(r->name, 520, 0);
     lv_label_set_text(r->name, p->name);
     if (p->active) {
       lv_obj_set_style_text_font(r->name, &lg_600_17, 0);
       lv_obj_set_style_text_color(r->name, ACCENT, 0);
     }
+    one_line(r->name, 520);
     lv_obj_set_style_text_font(r->val, &lg_400_17, 0);
     if (p->detail && p->brew_temp > 0) {
       if (p->stop_weight > 0) snprintf(b, sizeof b, "%.0f %sC%s%.1f g", p->brew_temp, DEG, DOT, p->stop_weight);
