@@ -224,7 +224,7 @@ static void note(const char *t) {   // a short message in the Ready header for 3
   g_note_until = g_now + 3000;
 }
 
-#define PLAN_W 340   // leaves room for the three buttons at the bottom right
+#define PLAN_W 400
 static void plan_draw(lv_event_t *e) {
   lv_layer_t *L = lv_event_get_layer(e);
   lv_area_t a;
@@ -285,6 +285,22 @@ static void on_flush(lv_event_t *e) {
 static void build_ready(lv_obj_t *scr) {
   g_ready = layer(scr);
   g_rh = header(g_ready);
+  // SETTINGS at the right of the header, the clock left of it; the touch area covers the header's height
+  lv_obj_t *sb = lv_obj_create(g_ready);
+  lv_obj_remove_style_all(sb);
+  lv_obj_set_size(sb, LV_SIZE_CONTENT, 50);
+  lv_obj_set_style_pad_hor(sb, 12, 0);
+  lv_obj_align(sb, LV_ALIGN_TOP_RIGHT, -12, 1);
+  lv_obj_set_style_bg_color(sb, PRESSED, LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(sb, LV_OPA_COVER, LV_STATE_PRESSED);
+  lv_obj_add_flag(sb, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(sb, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(sb, open_settings, LV_EVENT_CLICKED, NULL);
+  lv_obj_t *sl = text(sb, &lg_mono_14, INK, "SETTINGS");
+  lv_obj_set_style_text_decor(sl, LV_TEXT_DECOR_UNDERLINE, 0);
+  lv_obj_set_pos(sl, 0, 23);   // the same line as the clock (header text at y 24)
+  lv_obj_update_layout(sb);
+  lv_obj_align(g_rh.right, LV_ALIGN_TOP_RIGHT, -(12 + lv_obj_get_width(sb) + 4), 24);   // kept right-aligned as it changes
   g_note = text(g_ready, &lg_mono_14, ACCENT, "");
   lv_obj_set_pos(g_note, 260, 24);
   lv_obj_add_flag(g_note, LV_OBJ_FLAG_HIDDEN);
@@ -328,8 +344,6 @@ static void build_ready(lv_obj_t *scr) {
   g_flush_btn = bf;
   g_flush_lbl = lv_obj_get_child(bf, 0);
   lv_obj_align_to(bf, bp, LV_ALIGN_OUT_LEFT_MID, -16, 0);
-  lv_obj_t *bs = button(g_ready, "Settings", open_settings, NULL);
-  lv_obj_align_to(bs, bf, LV_ALIGN_OUT_LEFT_MID, -16, 0);
 }
 
 static void update_ready(const bd_machine *m) {

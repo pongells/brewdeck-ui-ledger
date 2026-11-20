@@ -100,7 +100,7 @@ Each line has an ID (`R1`, `B2`, ...) so a later standard test list can refer to
 
 | ID | Feature (Brewdeck) | Ledger | Panel | Notes |
 |---|---|---|---|---|
-| U1 | Menu | partial | | a Settings page from Ready (Wi-Fi, machine address, versions); no display settings yet |
+| U1 | Menu | partial | | a Settings page from the Ready header (Wi-Fi, machine address, versions); no display settings yet |
 | U2 | Scale page | missing | | |
 | U3 | Display: brightness, Dim after, idle clock, splash | missing | | |
 | U4 | About: versions, uptime, restart reason, memory, machine versions | done | | on the Settings page (no memory row); a pending machine update in red |
