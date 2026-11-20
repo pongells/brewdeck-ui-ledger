@@ -151,7 +151,13 @@ static uint32_t g_now, g_splash_until, g_brew_done_at;
 static bool g_brewing_shown;
 
 static const char *state_word(const bd_machine *m) {
-  if (m->link != BD_LINK_ONLINE) return m->link == BD_LINK_NO_MACHINE ? "MACHINE NOT FOUND" : "CONNECTING";
+  if (m->link != BD_LINK_ONLINE) {   // why it is offline, once the core knows
+    switch (m->why) {
+      case BD_WHY_WIFI_NO_AP: case BD_WHY_WIFI_AUTH: case BD_WHY_WIFI_OTHER: return "NO WI-FI";
+      case BD_WHY_NAME_UNKNOWN: case BD_WHY_NO_REPLY: return "MACHINE NOT FOUND";
+      default: return m->link == BD_LINK_NO_MACHINE ? "MACHINE NOT FOUND" : "CONNECTING";
+    }
+  }
   if (m->brewing) return "BREWING";
   if (m->steaming) return "STEAM";
   if (m->hot_water) return "HOT WATER";
@@ -306,12 +312,14 @@ static void update_ready(const bd_machine *m) {
   const bool on = m->link == BD_LINK_ONLINE;
   if (on) snprintf(b, sizeof b, "%.1f", m->temperature); else snprintf(b, sizeof b, "--");
   set_text(g_temp, b);
+  if (on) lv_obj_remove_flag(g_temp_unit, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(g_temp_unit, LV_OBJ_FLAG_HIDDEN);
   const char *name = m->running.name[0] ? m->running.name : m->profile_name;
   row_set(&g_r_prof, name[0] ? name : DASH);
   const float bt = cur_temp(m), sw = cur_stop(m);
   if (bt > 0) snprintf(b, sizeof b, "%.0f %sC", bt, DEG); else snprintf(b, sizeof b, "%s", DASH);
   row_set(&g_r_temp, b);
-  if (sw > 0) snprintf(b, sizeof b, "%.1f g", sw); else snprintf(b, sizeof b, "none");
+  if (sw > 0) snprintf(b, sizeof b, "%.1f g", sw);
+  else snprintf(b, sizeof b, "%s", on && bd_active_shape()->id ? "none" : DASH);   // "none" only once it is known
   row_set(&g_r_stop, b);
   if (on) snprintf(b, sizeof b, "%.1f bar", m->pressure); else snprintf(b, sizeof b, "%s", DASH);
   row_set(&g_r_press, b);
