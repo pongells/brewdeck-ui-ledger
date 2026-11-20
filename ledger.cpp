@@ -168,8 +168,9 @@ static const char *state_word(const bd_machine *m) {
   switch (m->readiness) {
     case BD_RD_STEAMING: return "STEAM";
     case BD_RD_FLUSHING: return m->temperature >= m->target_temp - 1 ? "READY" : "HEATING";   // see above
-    case BD_RD_READY: return "READY";
-    case BD_RD_HEATING: return "HEATING";
+    case BD_RD_READY: case BD_RD_HEATING:   // the boiler well above the target (after steam): cooling down
+      if (m->target_temp > 0 && m->temperature > m->target_temp + 3) return "COOLING";
+      return m->readiness == BD_RD_READY ? "READY" : "HEATING";
     case BD_RD_WARMING: return "WARMING UP";
     case BD_RD_STANDBY: return "STANDBY";
     case BD_RD_WAITING: return "WAITING";
@@ -198,7 +199,7 @@ static const char *result_text(bd_result r) {
 }
 
 // ---- Ready ---------------------------------------------------------------------------------------------------------
-static Header g_rh;
+static Header g_rh, g_sh;   // Ready and Steam headers (the clock is on both)
 static lv_obj_t *g_temp, *g_temp_unit, *g_plan, *g_flush_btn, *g_flush_lbl, *g_note;
 static Row g_r_prof, g_r_temp, g_r_stop, g_r_press, g_r_scale, g_r_water;
 static bd_preview *g_pv;   // the active profile's plan (PSRAM)
@@ -357,6 +358,7 @@ static void update_clock(void) {
   char b[24] = "";
   if (bd_local_time(&h, &mi, &wd)) snprintf(b, sizeof b, "%s%s%02d:%02d", DAY[wd % 7], DOT, h, mi);
   set_text(g_rh.right, b);
+  set_text(g_sh.right, b);
 }
 
 // ---- Brewing -------------------------------------------------------------------------------------------------------
@@ -517,6 +519,157 @@ static void brew_end(void) {
   else snprintf(b, sizeof b, "DONE");
   set_text(g_bh.left, b);
   g_brew_done_at = g_now ? g_now : 1;
+}
+
+// ---- Steam ---------------------------------------------------------------------------------------------------------
+// Opens while the machine steams, over Ready (under Brewing and the pages). Boiler temperature huge, rows for set
+// point, pressure, time and water, and a chart of the session: boiler (ink), pressure (grey), set point (dotted red).
+// One sample per second; the time axis is 1 min, then grows in 30 s steps (a full redraw only then).
+#define ST_W 752
+#define ST_H 150
+#define ST_BASE 140
+#define ST_MAX 900   // 15 min of samples
+static lv_obj_t *g_steam, *g_st_temp, *g_st_chart;
+static Row g_r_set, g_r_spress, g_r_time, g_r_swater;
+static int16_t g_st_t[ST_MAX], g_st_p[ST_MAX];   // degC x10, bar x10
+static int g_st_n, g_st_span = 60, g_st_set;
+static uint32_t g_st_start, g_st_next;
+static bool g_steam_shown;
+
+static float st_lo(void) { return 80; }
+static float st_hi(void) { return (g_st_set > 0 ? g_st_set : 155) + 15; }
+static int st_x(int i) { return (int)(i * (ST_W - 1) / (float)g_st_span + 0.5f); }
+static int st_ty(int t10) {
+  const float y = ST_BASE - (t10 / 10.0f - st_lo()) * (ST_BASE - 4) / (st_hi() - st_lo());
+  return y < 0 ? 0 : (y > ST_BASE ? ST_BASE : (int)(y + 0.5f));
+}
+static int st_py(int p10) {   // 0-15 bar over the same height
+  const float y = ST_BASE - p10 / 150.0f * (ST_BASE - 4);
+  return y < 0 ? 0 : (int)(y + 0.5f);
+}
+
+static void steam_draw(lv_event_t *e) {
+  lv_layer_t *L = lv_event_get_layer(e);
+  lv_area_t a;
+  lv_obj_get_coords(lv_event_get_target_obj(e), &a);
+  lv_draw_line_dsc_t d;
+  lv_draw_line_dsc_init(&d);
+  d.width = 1;
+  d.color = INK;
+  d.p1.x = a.x1; d.p2.x = a.x1 + ST_W - 1; d.p1.y = d.p2.y = a.y1 + ST_BASE;
+  lv_draw_line(L, &d);
+  for (int sx = 0; sx <= g_st_span; sx += 30) {   // a tick every 30 s
+    d.p1.x = d.p2.x = a.x1 + st_x(sx); d.p1.y = a.y1 + ST_BASE - 6; d.p2.y = a.y1 + ST_BASE;
+    lv_draw_line(L, &d);
+  }
+  if (g_st_set > 0) {
+    d.color = ACCENT;
+    const int y = a.y1 + st_ty(g_st_set * 10);
+    for (int x = 0; x < ST_W; x += 8) { d.p1.x = a.x1 + x; d.p2.x = a.x1 + x + 2; d.p1.y = d.p2.y = y; lv_draw_line(L, &d); }
+  }
+  if (g_st_n < 2) return;
+  const lv_area_t *clip = &L->_clip_area;
+  for (int k = 0; k < 2; k++) {   // 0 pressure (grey, under), 1 boiler (ink)
+    d.color = k ? INK : MUTED;
+    d.width = k ? 3 : 2;
+    d.round_start = d.round_end = 1;
+    for (int i = 1; i < g_st_n; i++) {
+      const int x0 = st_x(i - 1), x1 = st_x(i);
+      if (x1 < clip->x1 - a.x1 - 8 || x0 > clip->x2 - a.x1 + 8) continue;
+      d.p1.x = a.x1 + x0; d.p2.x = a.x1 + x1;
+      d.p1.y = a.y1 + (k ? st_ty(g_st_t[i - 1]) : st_py(g_st_p[i - 1]));
+      d.p2.y = a.y1 + (k ? st_ty(g_st_t[i]) : st_py(g_st_p[i]));
+      lv_draw_line(L, &d);
+    }
+  }
+}
+
+static void build_steam(lv_obj_t *scr) {
+  g_steam = layer(scr);
+  g_sh = header(g_steam);
+  set_text(g_sh.left, "STEAM");
+  lv_obj_t *t = row_box(g_steam);
+  lv_obj_set_pos(t, 18, 58);
+  g_st_temp = text(t, &lg_c300_220, INK, "--");
+  lv_obj_set_style_text_letter_space(g_st_temp, -4, 0);
+  lv_obj_t *u = text(t, &lg_400_36, INK, "\xC2\xB0" "C");
+  lv_obj_set_style_pad_top(u, 36, 0);
+  lv_obj_set_style_pad_left(u, 4, 0);
+  lv_obj_t *col = lv_obj_create(g_steam);
+  lv_obj_remove_style_all(col);
+  lv_obj_set_pos(col, 456, 74);
+  lv_obj_set_size(col, 320, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+  lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+  row_init(&g_r_set, col, "Set point", true, NULL);
+  row_init(&g_r_time, col, "Time", true, NULL);
+  row_init(&g_r_spress, col, "Pressure", false, NULL);
+  row_init(&g_r_swater, col, "Water", false, NULL);
+  lv_obj_set_pos(text(g_steam, &lg_mono_13, MUTED, "BOILER \xE2\x80\x94  PRESSURE \xE2\x80\x94  SET POINT \xC2\xB7 \xC2\xB7 \xC2\xB7"), 24, 278);
+  g_st_chart = lv_obj_create(g_steam);
+  lv_obj_remove_style_all(g_st_chart);
+  lv_obj_set_pos(g_st_chart, 24, 306);
+  lv_obj_set_size(g_st_chart, ST_W, ST_H);
+  lv_obj_remove_flag(g_st_chart, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(g_st_chart, steam_draw, LV_EVENT_DRAW_MAIN, NULL);
+  lv_obj_add_flag(g_steam, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void steam_rows(const bd_machine *m) {
+  char b[40];
+  if (g_st_set > 0) {
+    const bool holding = m->temperature >= g_st_set - 3;
+    snprintf(b, sizeof b, "%s %d %sC", holding ? "holding" : "heating to", g_st_set, DEG);
+  } else snprintf(b, sizeof b, "%s", DASH);
+  row_set(&g_r_set, b);
+  const uint32_t s = (g_now - g_st_start) / 1000;
+  snprintf(b, sizeof b, "%lu:%02lu", (unsigned long)(s / 60), (unsigned long)(s % 60));
+  row_set(&g_r_time, b);
+  snprintf(b, sizeof b, "%.1f bar", m->pressure);
+  row_set(&g_r_spress, b);
+  snprintf(b, sizeof b, "%d %%", m->water_level);
+  row_set(&g_r_swater, b);
+  snprintf(b, sizeof b, "%.1f", m->temperature);
+  set_text(g_st_temp, b);
+}
+
+static void steam_open(const bd_machine *m) {
+  g_st_n = 0;
+  g_st_span = 60;
+  g_st_set = m->steam_set;
+  g_st_start = g_now;
+  g_st_next = g_now;
+  steam_rows(m);
+  lv_obj_remove_flag(g_steam, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_invalidate(g_st_chart);
+  g_steam_shown = true;
+}
+
+// once per tick while steaming: a sample per second (missed seconds after a stall get the last value)
+static void steam_step(const bd_machine *m) {
+  if (m->steam_set != g_st_set) { g_st_set = m->steam_set; lv_obj_invalidate(g_st_chart); }
+  if ((int32_t)(g_now - g_st_next) < 0) return;
+  bool full = false;
+  const int from = g_st_n;
+  while ((int32_t)(g_now - g_st_next) >= 0 && g_st_n < ST_MAX) {
+    g_st_t[g_st_n] = (int16_t)(m->temperature * 10);
+    g_st_p[g_st_n] = (int16_t)(m->pressure * 10);
+    g_st_n++;
+    g_st_next += 1000;
+  }
+  if (g_st_n >= ST_MAX) g_st_next = g_now + 1000;
+  while (g_st_n - 1 > g_st_span) { g_st_span += 30; full = true; }
+  steam_rows(m);
+  if (full) { lv_obj_invalidate(g_st_chart); return; }
+  lv_area_t a;
+  lv_obj_get_coords(g_st_chart, &a);
+  lv_area_t r = {a.x1 + st_x(from > 0 ? from - 1 : 0) - 8, a.y1, a.x1 + st_x(g_st_n - 1) + 8, a.y2};
+  lv_obj_invalidate_area(g_st_chart, &r);
+}
+
+static void steam_close(void) {
+  lv_obj_add_flag(g_steam, LV_OBJ_FLAG_HIDDEN);
+  g_steam_shown = false;
 }
 
 // ---- Profiles ------------------------------------------------------------------------------------------------------
@@ -683,6 +836,7 @@ void bd_ui_init(void) {
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
   lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
   build_ready(scr);
+  build_steam(scr);   // under Brewing and the pages
   build_brew(scr);
   build_profiles(scr);
   build_edit(scr);
@@ -708,6 +862,10 @@ void bd_ui_tick(uint32_t now) {
   if (now - last_clock > 1000) { last_clock = now; update_clock(); }
   if (g_note_until && now > g_note_until) { g_note_until = 0; lv_obj_add_flag(g_note, LV_OBJ_FLAG_HIDDEN); }
   if (g_brewing_shown && g_brew_done_at && now - g_brew_done_at > 60000) brew_close(NULL);
+  const bool steaming = m->link == BD_LINK_ONLINE && (m->steaming || !strcmp(m->mode, "STEAM"));
+  if (steaming && !g_steam_shown) steam_open(m);
+  else if (steaming) steam_step(m);
+  else if (g_steam_shown) steam_close();
   bd_lvgl9_tick(now);
 }
 
