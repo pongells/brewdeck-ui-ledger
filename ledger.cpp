@@ -1207,7 +1207,7 @@ static const char *reset_text(bd_reset r) {
     case BD_RESET_CRASH: return "after a crash";
     case BD_RESET_WATCHDOG: return "after a freeze";
     case BD_RESET_BROWNOUT: return "after a power dip";
-    default: return "";
+    default: return "after a system reset";   // OTHER: e.g. the system watchdog that ends every flash on the P4
   }
 }
 static void settings_update(void) {
