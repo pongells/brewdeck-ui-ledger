@@ -161,8 +161,10 @@ static const char *state_word(const bd_machine *m) {
   if (m->brewing) return "BREWING";
   if (m->steaming) return "STEAM";
   if (m->hot_water) return "HOT WATER";
-  if (!strcmp(m->mode, "FLUSH_AUTO") || m->readiness == BD_RD_FLUSHING) return "FLUSHING";
+  // the mode first: the machine reports readiness FLUSHING for the whole flush mode, water running or not
+  if (!strcmp(m->mode, "FLUSH_AUTO")) return "FLUSHING";
   if (!strcmp(m->mode, "FLUSH")) return "FLUSH MODE \xC2\xB7 THE BREW SWITCH FLUSHES";
+  if (m->readiness == BD_RD_FLUSHING) return "FLUSHING";
   switch (m->readiness) {
     case BD_RD_STEAMING: return "STEAM";
     case BD_RD_READY: return "READY";
@@ -334,8 +336,9 @@ static void update_ready(const bd_machine *m) {
   row_set(&g_r_scale, b);
   if (on) snprintf(b, sizeof b, "%d %%", m->water_level); else snprintf(b, sizeof b, "%s", DASH);
   row_set(&g_r_water, b);
-  const bool flushing = !strcmp(m->mode, "FLUSH_AUTO") || m->readiness == BD_RD_FLUSHING;
-  set_text(g_flush_lbl, flushing ? "Flushing" : (!strcmp(m->mode, "FLUSH") ? "Flush on" : "Flush"));
+  const bool mode_on = !strcmp(m->mode, "FLUSH");   // checked first: readiness says FLUSHING in flush mode too
+  const bool flushing = !strcmp(m->mode, "FLUSH_AUTO") || (!mode_on && m->readiness == BD_RD_FLUSHING);
+  set_text(g_flush_lbl, mode_on ? "Flush on" : (flushing ? "Flushing" : "Flush"));
 }
 
 static void update_clock(void) {
