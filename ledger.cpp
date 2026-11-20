@@ -145,6 +145,9 @@ static void row_set(Row *r, const char *v) {
   row_fit(r);
 }
 
+// the pressure sensor reads a little below 0 at rest (-0.02 printed as "-0.0"); not a number = 0 too
+static float bar(float p) { return p > 0 ? (p < 20 ? p : 20) : 0; }
+
 // ---- state shared by the pages -------------------------------------------------------------------------------------
 static lv_obj_t *g_ready, *g_brew, *g_prof, *g_edit, *g_splash;
 static uint32_t g_now, g_splash_until, g_brew_done_at;
@@ -332,7 +335,7 @@ static void update_ready(const bd_machine *m) {
   if (sw > 0) snprintf(b, sizeof b, "%.1f g", sw);
   else snprintf(b, sizeof b, "%s", on && bd_active_shape()->id ? "none" : DASH);   // "none" only once it is known
   row_set(&g_r_stop, b);
-  if (on) snprintf(b, sizeof b, "%.1f bar", m->pressure); else snprintf(b, sizeof b, "%s", DASH);
+  if (on) snprintf(b, sizeof b, "%.1f bar", bar(m->pressure)); else snprintf(b, sizeof b, "%s", DASH);
   row_set(&g_r_press, b);
   if (on && m->scale_present) snprintf(b, sizeof b, "%.1f g", m->weight);
   else snprintf(b, sizeof b, "%s", on ? (m->scale_type == BD_SCALE_PREDICTIVE ? "predictive" : "not connected") : DASH);
@@ -625,7 +628,7 @@ static void steam_rows(const bd_machine *m) {
   const uint32_t s = (g_now - g_st_start) / 1000;
   snprintf(b, sizeof b, "%lu:%02lu", (unsigned long)(s / 60), (unsigned long)(s % 60));
   row_set(&g_r_time, b);
-  snprintf(b, sizeof b, "%.1f bar", m->pressure);
+  snprintf(b, sizeof b, "%.1f bar", bar(m->pressure));
   row_set(&g_r_spress, b);
   snprintf(b, sizeof b, "%d %%", m->water_level);
   row_set(&g_r_swater, b);
@@ -653,7 +656,7 @@ static void steam_step(const bd_machine *m) {
   const int from = g_st_n;
   while ((int32_t)(g_now - g_st_next) >= 0 && g_st_n < ST_MAX) {
     g_st_t[g_st_n] = (int16_t)(m->temperature * 10);
-    g_st_p[g_st_n] = (int16_t)(m->pressure * 10);
+    g_st_p[g_st_n] = (int16_t)(bar(m->pressure) * 10);
     g_st_n++;
     g_st_next += 1000;
   }
