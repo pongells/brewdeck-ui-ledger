@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 36 px
  * Bpp: 4
- * Opts: --bpp 4 --size 36 --font /var/folders/6k/jsn15fd5437gzf__slmn78rm0000gn/T/tmp.X3fHcnrqv9/a_400.ttf -r 0x20-0x7E,0xB0,0xB7,0x2013,0x2014,0x2212,0x221E --format lvgl --no-compress --lv-font-name lg_400_36 --lv-include lvgl.h -o fonts/lg_400_36.c
+ * Opts: --bpp 4 --size 36 --font <Archivo instance>/a_400.ttf -r 0x20-0x7E,0xB0,0xB7,0x2013,0x2014,0x2212,0x221E --format lvgl --no-compress --lv-font-name lg_400_36 --lv-include lvgl.h -o ui/fonts/lg_400_36.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE

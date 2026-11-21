@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 13 px
  * Bpp: 4
- * Opts: --bpp 4 --size 13 --font fonts/src/IBMPlexMono-Regular.ttf -r 0x20-0x7E,0xB0,0xB7,0x2013,0x2014,0x2212,0x221E --format lvgl --no-compress --lv-font-name lg_mono_13 --lv-include lvgl.h -o fonts/lg_mono_13.c
+ * Opts: --bpp 4 --size 13 --font ui/fonts/src/IBMPlexMono-Regular.ttf -r 0x20-0x7E,0xB0,0xB7,0x2013,0x2014,0x2212,0x221E --format lvgl --no-compress --lv-font-name lg_mono_13 --lv-include lvgl.h -o ui/fonts/lg_mono_13.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
