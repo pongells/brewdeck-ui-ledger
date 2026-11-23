@@ -1580,6 +1580,10 @@ void bd_ui_tick(uint32_t now) {
   if (steaming && !g_steam_shown) steam_open(m);
   else if (steaming) steam_step(m);
   else if (g_steam_shown) steam_close();
+  if (steaming && g_brewing_shown && g_brew_done_at) {   // a shot that ended after steam began: its result
+    lv_obj_add_flag(g_brew, LV_OBJ_FLAG_HIDDEN);           // would cover steam (its end event comes up to 3 s later)
+    g_brewing_shown = false;
+  }
   offline_step(m);
   static uint32_t set_upd;
   if (!lv_obj_has_flag(g_set, LV_OBJ_FLAG_HIDDEN) && now - set_upd > 1000) { set_upd = now; settings_update(); }

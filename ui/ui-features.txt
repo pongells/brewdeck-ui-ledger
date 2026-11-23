@@ -1,5 +1,5 @@
 # What Ledger leaves out of Brewdeck's docs/ui-features.md. Features not listed here are checked normally.
-# Full table: Brewdeck's tests/ui/run.sh <path to this folder> (writes status.md).
+# Full table: ./checks.sh (writes checks/status.md).
 # id  status    note
 R2    partial   no DESCALE word (falls back to the readiness)
 R4    missing   shows READY / HEATING as reported (flips while warming)
