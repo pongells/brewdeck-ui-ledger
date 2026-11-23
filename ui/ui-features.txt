@@ -1,0 +1,29 @@
+# What Ledger leaves out of Brewdeck's docs/ui-features.md. Features not listed here are checked normally.
+# Full table: Brewdeck's tests/ui/run.sh <path to this folder> (writes status.md).
+# id  status    note
+R2    partial   no DESCALE word (falls back to the readiness)
+R4    missing   shows READY / HEATING as reported (flips while warming)
+R7    partial   pressure solid, flow dashed; limits not drawn
+R9    missing   pressure shown, never highlighted
+R10   missing   scale and water shown, never highlighted
+T3    missing   - / + only
+T7    missing   no originals kept
+T8    missing
+P2    missing   the machine's order
+P3    partial   temperature and weight; no last use
+P4    missing   no originals kept
+P5    partial   sends the select again (harmless)
+B2    partial   pressure, flow, weight; temperature only in the legend
+B3    missing
+B5    missing   drawn as a staircase
+V1    missing   no review
+V2    missing   no review to compare with
+V3    missing   no review
+V4    partial   no review; the brewing screen with the result closes on a tap or after 60 s
+V5    missing
+M2    missing   water shown, not highlighted
+N2    missing   notices other than the pressure release are not shown
+N3    partial   on Settings (Machine update); no banner
+N4    missing
+U2    missing
+U3    missing   no display settings

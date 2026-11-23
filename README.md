@@ -55,10 +55,16 @@ Archivo (condensed for the big numbers) and IBM Plex Mono, both under the SIL Op
 `tools/make_fonts.sh` converts them to LVGL fonts in `ui/fonts/` (needs uv and Node). Each font holds only the
 characters listed in that script: add a character there before using it in the UI.
 
-## Compared with Brewdeck's UI
+## Features
 
-[FEATURES.md](FEATURES.md): every feature of Brewdeck's own UI, with what Ledger has, lacks, and what was seen on
-the panel.
+Ledger follows Brewdeck's feature list ([docs/ui-features.md](https://github.com/pongells/brewdeck/blob/main/docs/ui-features.md)).
+`ui/ui-features.txt` lists what it leaves out or does only in part (no shot review, history or notices list yet,
+no keypad, no display settings). Brewdeck's shared UI scenarios check the rest and print the full table: in a Brewdeck
+checkout newer than v0.2.0, `tests/ui/run.sh /path/to/brewdeck-ui-ledger/ui`.
+
+Seen on the real screen (ESP32-P4): Ready, the profile pick, a shot, flush. Only in the emulator so far: brew
+temperature and stop weight changes on the machine, steam, the pressure release, standby, Settings, Wi-Fi and the
+offline page, the time axis growing during a long shot.
 
 ## License
 
