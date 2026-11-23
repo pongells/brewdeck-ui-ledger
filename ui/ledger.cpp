@@ -155,7 +155,8 @@ static void row_init(Row *r, lv_obj_t *p, const char *name, bool strong, lv_even
   r->w = 320;
   r->row = lv_obj_create(p);
   lv_obj_remove_style_all(r->row);
-  lv_obj_set_size(r->row, 320, 40);
+  const int h = cb ? 48 : 40;                         // a row that opens something: a 48 px touch target
+  lv_obj_set_size(r->row, 320, h);
   lv_obj_remove_flag(r->row, LV_OBJ_FLAG_SCROLLABLE);
   r->name = text(r->row, &lg_400_17, strong ? INK : MUTED, name);
   lv_obj_align(r->name, LV_ALIGN_LEFT_MID, 0, 0);
@@ -166,7 +167,7 @@ static void row_init(Row *r, lv_obj_t *p, const char *name, bool strong, lv_even
   lv_obj_set_style_line_width(r->lead, 2, 0);
   lv_obj_set_style_line_dash_width(r->lead, 2, 0);
   lv_obj_set_style_line_dash_gap(r->lead, 3, 0);
-  lv_obj_set_pos(r->lead, 0, 27);
+  lv_obj_set_pos(r->lead, 0, h / 2 + 7);             // the dotted leader on the text baseline
   if (cb) {
     lv_obj_add_flag(r->row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_bg_color(r->row, PRESSED, LV_STATE_PRESSED);
@@ -1484,6 +1485,7 @@ static void build_standby(lv_obj_t *scr) {
   lv_obj_set_flex_align(g_idle_box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_remove_flag(g_idle_box, LV_OBJ_FLAG_CLICKABLE);
   g_idle_clock = text(g_idle_box, &lg_c300_220, INK, "--:--");
+  tag(g_idle_clock, "value.clock");
   lv_obj_set_style_text_letter_space(g_idle_clock, -4, 0);
   g_idle_line = text(g_idle_box, &lg_mono_14, ACCENT, "");
   lv_obj_align(g_idle_box, LV_ALIGN_CENTER, 0, 0);
