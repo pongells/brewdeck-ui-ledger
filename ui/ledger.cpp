@@ -1203,6 +1203,12 @@ static void on_key(lv_event_t *e) {
   if (c < (int)strlen(KLAY[g_klay][r])) kbd_type(KLAY[g_klay][r][c]);
 }
 static void on_space(lv_event_t *e) { (void)e; kbd_type(' '); }
+// a key event on the field (a hardware keyboard, or Brewdeck's shared UI tests): a character or backspace
+static void on_kfield_key(lv_event_t *e) {
+  const uint32_t k = lv_event_get_key(e);
+  if (k == LV_KEY_BACKSPACE) { if (g_klen) g_ktext[--g_klen] = 0; kbd_show(); }
+  else if (k >= 0x20 && k < 0x7F) { const int lay = g_klay; kbd_type((char)k); g_klay = lay; kbd_show(); }
+}
 static void on_back(lv_event_t *e) { (void)e; if (g_klen) g_ktext[--g_klen] = 0; kbd_show(); }
 static void on_special(lv_event_t *e) { (void)e; g_klay = g_klay == 0 ? 1 : g_klay == 1 ? 0 : g_klay == 2 ? 3 : 2; kbd_show(); }
 static void on_layer(lv_event_t *e) { (void)e; g_klay = g_klay >= 2 ? 0 : 2; kbd_show(); }
@@ -1269,6 +1275,7 @@ static void build_kbd(lv_obj_t *scr) {
   g_kh = header(g_kbd);
   g_kfield = text(g_kbd, &lg_400_36, INK, "|");
   lv_obj_set_pos(g_kfield, 24, 70);
+  lv_obj_add_event_cb(g_kfield, on_kfield_key, LV_EVENT_KEY, NULL);
   rule(g_kbd, 24, 124, 752, 2, INK);
   const int KW = 69, G = 6, Y0 = 146, RH = 58;
   for (int c = 0; c < 10; c++) g_kkeys[0][c] = key(g_kbd, 24 + 4 + c * (KW + G), Y0, KW, "", on_key, (void *)(intptr_t)(0 << 4 | c));
