@@ -892,6 +892,8 @@ static void build_edit(lv_obj_t *scr) {
   lv_obj_align(g_e_minus, LV_ALIGN_TOP_LEFT, 24, 150);
   g_e_plus = step_button(g_edit, "+", 1);
   lv_obj_align(g_e_plus, LV_ALIGN_TOP_RIGHT, -24, 150);
+  tag(g_e_minus, "action.temp_down");   // until the editor first opens (edit_open sets them by mode)
+  tag(g_e_plus, "action.temp_up");
   g_ehint = text(g_edit, &lg_mono_13, MUTED, "");
   lv_obj_set_pos(g_ehint, 24, 442);
   lv_obj_t *s = button(g_edit, "Set", on_set, NULL);
@@ -1255,6 +1257,7 @@ static void kbd_open(int mode, const char *ssid) {
     set_text(lv_obj_get_child(g_kok, 0), "Use");
   }
   set_text(g_kh.right, "");
+  tag(g_kh.right, NULL);
   kbd_show();
   lv_obj_remove_flag(g_kbd, LV_OBJ_FLAG_HIDDEN);
   lv_obj_move_to_index(g_kbd, -1);
@@ -1609,13 +1612,18 @@ void bd_ui_event(const bd_event *e) {
     case BD_EV_WIFI_JOIN: {
       const bool kb = !lv_obj_has_flag(g_kbd, LV_OBJ_FLAG_HIDDEN);
       Header *h = kb ? &g_kh : &g_wh;
+      tag(g_kh.right, NULL);
+      tag(g_wh.right, NULL);
       if (e->u.join.state == BD_JOIN_BUSY) set_text(h->right, "JOINING");
       else if (e->u.join.state == BD_JOIN_OK) {
         if (kb) kbd_close();
         lv_obj_add_flag(g_wifi, LV_OBJ_FLAG_HIDDEN);
         g_offline_at = g_offline_at ? stamp(g_now) : 0;
         note("WI-FI JOINED");
-      } else if (e->u.join.state == BD_JOIN_FAILED) set_text(h->right, kb ? "NOT JOINED Â· CHECK THE PASSWORD" : "NOT JOINED");
+      } else if (e->u.join.state == BD_JOIN_FAILED) {
+        tag(h->right, "info.wifi_error");
+        set_text(h->right, kb ? "NOT JOINED \xC2\xB7 CHECK THE PASSWORD" : "NOT JOINED");
+      }
       break;
     }
     case BD_EV_PRESSURE_RELEASE: standby_wake(); release_event(e->u.release.count); break;
