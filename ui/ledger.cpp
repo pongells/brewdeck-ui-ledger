@@ -35,6 +35,33 @@ static const char *DOT = " \xC2\xB7 ";    // middle dot
 static const char *DASH = "\xE2\x80\x94"; // em dash
 
 // ---- small helpers -------------------------------------------------------------------------------------------------
+// Tags for Brewdeck's shared UI checks (its docs/ui-features.md, tests/ui): LVGL names on the objects that matter,
+// nothing on the screen changes. tag() takes a literal (NULL removes the tag), tag_copy() a text that changes (list
+// rows); tag_marker() an invisible 1 x 1 child standing for something the object also is (Settings is also About).
+// Without LV_USE_OBJ_NAME (Brewdeck v0.2.0 and older) they do nothing.
+static void tag(lv_obj_t *o, const char *t) {
+#if LV_USE_OBJ_NAME
+  if (t) lv_obj_set_name_static(o, t);
+  else lv_obj_set_name(o, NULL);
+#else
+  (void)o; (void)t;
+#endif
+}
+static void tag_copy(lv_obj_t *o, const char *t) {
+#if LV_USE_OBJ_NAME
+  lv_obj_set_name(o, t);
+#else
+  (void)o; (void)t;
+#endif
+}
+static void tag_marker(lv_obj_t *p, const char *t) {
+  lv_obj_t *m = lv_obj_create(p);
+  lv_obj_remove_style_all(m);
+  lv_obj_set_size(m, 1, 1);
+  lv_obj_add_flag(m, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_remove_flag(m, LV_OBJ_FLAG_CLICKABLE);
+  tag(m, t);
+}
 static lv_obj_t *layer(lv_obj_t *parent) {   // a full-screen page
   lv_obj_t *o = lv_obj_create(parent);
   lv_obj_remove_style_all(o);
@@ -162,7 +189,9 @@ static lv_obj_t *g_ready, *g_brew, *g_prof, *g_edit, *g_splash;
 static uint32_t g_now, g_splash_until, g_brew_done_at;
 static bool g_brewing_shown;
 
-static const char *state_word(const bd_machine *m) {
+// a time kept as "set" must not be 0; not "now | 1": 1 ms ahead on even ticks, so "now - t" wraps to ~49 days
+static uint32_t stamp(uint32_t t) { return t ? t : 1; }
+static const char *state_word_now(const bd_machine *m) {
   if (m->link != BD_LINK_ONLINE) {   // why it is offline, once the core knows
     switch (m->why) {
       case BD_WHY_WIFI_NO_AP: case BD_WHY_WIFI_AUTH: case BD_WHY_WIFI_OTHER: return "NO WI-FI";
@@ -189,6 +218,16 @@ static const char *state_word(const bd_machine *m) {
     case BD_RD_MAINTENANCE: return "MAINTENANCE";
     default: return m->temperature >= m->target_temp - 1 ? "READY" : "HEATING";
   }
+}
+// a short drop goes unnoticed: the last word stays for 5 s (the offline page waits as long)
+static uint32_t g_drop_at;   // when the link dropped (0 = online)
+static bool g_word_held;     // the header shows the word from before the drop
+static const char *state_word(const bd_machine *m) {
+  static const char *last;   // the word while online (NULL until online once)
+  if (m->link == BD_LINK_ONLINE) { g_drop_at = 0; g_word_held = false; return last = state_word_now(m); }
+  if (!g_drop_at) g_drop_at = stamp(g_now);
+  g_word_held = last && g_now - g_drop_at < 5000;
+  return g_word_held ? last : state_word_now(m);
 }
 static float cur_stop(const bd_machine *m) {
   if (m->running.name[0]) return m->running.stop_weight;
@@ -284,7 +323,9 @@ static void on_flush(lv_event_t *e) {
 
 static void build_ready(lv_obj_t *scr) {
   g_ready = layer(scr);
+  tag(g_ready, "screen.ready");
   g_rh = header(g_ready);
+  tag(g_rh.left, "value.state");
   // SETTINGS at the right of the header; the touch area covers the header's height
   lv_obj_t *sb = lv_obj_create(g_ready);
   lv_obj_remove_style_all(sb);
@@ -296,6 +337,7 @@ static void build_ready(lv_obj_t *scr) {
   lv_obj_add_flag(sb, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(sb, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_event_cb(sb, open_settings, LV_EVENT_CLICKED, NULL);
+  tag(sb, "action.menu");
   lv_obj_t *sl = text(sb, &lg_mono_14, INK, "SETTINGS");
   lv_obj_set_style_text_decor(sl, LV_TEXT_DECOR_UNDERLINE, 0);
   lv_obj_set_pos(sl, 0, 23);   // the same line as the clock (header text at y 24)
@@ -307,6 +349,7 @@ static void build_ready(lv_obj_t *scr) {
   lv_obj_t *t = row_box(g_ready);
   lv_obj_set_pos(t, 18, 58);
   g_temp = text(t, &lg_c300_220, INK, "--");
+  tag(g_temp, "value.boiler_temp");
   lv_obj_set_style_text_letter_space(g_temp, -4, 0);
   g_temp_unit = text(t, &lg_400_36, INK, "\xC2\xB0" "C");
   lv_obj_set_style_pad_top(g_temp_unit, 36, 0);
@@ -325,6 +368,12 @@ static void build_ready(lv_obj_t *scr) {
   row_init(&g_r_press, col, "Pressure", false, NULL);
   row_init(&g_r_scale, col, "Scale", false, NULL);
   row_init(&g_r_water, col, "Water", false, NULL);
+  tag(g_r_prof.val, "value.profile");
+  tag(g_r_temp.val, "value.brew_temp");
+  tag(g_r_stop.val, "value.stop_weight");
+  tag(g_r_press.val, "value.pressure");
+  tag(g_r_scale.val, "value.scale");
+  tag(g_r_water.val, "value.water");
 
   lv_obj_set_pos(text(g_ready, &lg_mono_13, MUTED, "PLAN" " \xC2\xB7 " "PRESSURE \xE2\x80\x94  FLOW - -"), 24, 306);
   g_plan = lv_obj_create(g_ready);
@@ -336,12 +385,14 @@ static void build_ready(lv_obj_t *scr) {
   g_pv = (bd_preview *)bd_alloc(sizeof(bd_preview), BD_MEM_PSRAM);
 
   lv_obj_t *bp = button(g_ready, "Profiles", open_profiles, NULL);
+  tag(bp, "action.profiles");
   lv_obj_align(bp, LV_ALIGN_BOTTOM_RIGHT, -24, -24);
   lv_obj_t *bf = button(g_ready, "Flush", NULL, NULL);
   lv_obj_set_width(bf, 132);   // fixed: "Flushing" must not move it
   lv_obj_add_event_cb(bf, on_flush, LV_EVENT_SHORT_CLICKED, NULL);
   lv_obj_add_event_cb(bf, on_flush, LV_EVENT_LONG_PRESSED, NULL);
   g_flush_btn = bf;
+  tag(bf, "action.flush");
   g_flush_lbl = lv_obj_get_child(bf, 0);
   lv_obj_align_to(bf, bp, LV_ALIGN_OUT_LEFT_MID, -16, 0);
 }
@@ -453,18 +504,22 @@ static void brew_close(lv_event_t *e) {
 
 static void build_brew(lv_obj_t *scr) {
   g_brew = layer(scr);
+  tag(g_brew, "screen.brewing");
   lv_obj_add_flag(g_brew, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(g_brew, brew_close, LV_EVENT_CLICKED, NULL);
   g_bh = header(g_brew);
+  tag(g_bh.left, "value.state");
   lv_obj_t *t = row_box(g_brew);
   lv_obj_set_pos(t, 18, 56);
   g_time = text(t, &lg_c300_160, INK, "0.0");
+  tag(g_time, "value.shot_time");
   lv_obj_set_style_text_letter_space(g_time, -3, 0);
   lv_obj_t *u = text(t, &lg_400_36, INK, " s");
   lv_obj_set_style_pad_top(u, 96, 0);
   lv_obj_t *w = row_box(g_brew);
   lv_obj_align(w, LV_ALIGN_TOP_RIGHT, -24, 56);
   g_weight = text(w, &lg_c600_160, ACCENT, "0.0");
+  tag(g_weight, "value.weight");
   lv_obj_set_style_text_letter_space(g_weight, -3, 0);
   g_wunit = text(w, &lg_400_36, INK, " g");
   lv_obj_set_style_pad_top(g_wunit, 96, 0);
@@ -475,6 +530,7 @@ static void build_brew(lv_obj_t *scr) {
   lv_obj_remove_flag(g_chart, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(g_chart, chart_draw, LV_EVENT_DRAW_MAIN, NULL);
   g_lg_p = text(g_brew, &lg_mono_13, INK, "");
+  tag(g_lg_p, "value.pressure");
   lv_obj_set_pos(g_lg_p, 24, 450);
   g_lg_f = text(g_brew, &lg_mono_13, MUTED, "");
   lv_obj_set_pos(g_lg_f, 260, 450);
@@ -606,11 +662,14 @@ static void steam_draw(lv_event_t *e) {
 
 static void build_steam(lv_obj_t *scr) {
   g_steam = layer(scr);
+  tag(g_steam, "screen.steam");
   g_sh = header(g_steam);
+  tag(g_sh.left, "value.state");
   set_text(g_sh.left, "STEAM");
   lv_obj_t *t = row_box(g_steam);
   lv_obj_set_pos(t, 18, 58);
   g_st_temp = text(t, &lg_c300_220, INK, "--");
+  tag(g_st_temp, "value.boiler_temp");
   lv_obj_set_style_text_letter_space(g_st_temp, -4, 0);
   lv_obj_t *u = text(t, &lg_400_36, INK, "\xC2\xB0" "C");
   lv_obj_set_style_pad_top(u, 36, 0);
@@ -625,6 +684,7 @@ static void build_steam(lv_obj_t *scr) {
   row_init(&g_r_time, col, "Time", true, NULL);
   row_init(&g_r_spress, col, "Pressure", false, NULL);
   row_init(&g_r_swater, col, "Water", false, NULL);
+  tag(g_r_spress.val, "value.pressure");
   lv_obj_set_pos(text(g_steam, &lg_mono_13, MUTED, "BOILER \xE2\x80\x94  PRESSURE \xE2\x80\x94  SET POINT \xC2\xB7 \xC2\xB7 \xC2\xB7"), 24, 278);
   g_st_chart = lv_obj_create(g_steam);
   lv_obj_remove_style_all(g_st_chart);
@@ -660,7 +720,13 @@ static void steam_open(const bd_machine *m) {
   g_st_start = g_now;
   g_st_next = g_now;
   steam_rows(m);
+  if (g_brewing_shown && g_brew_done_at) {   // the last shot's result gives way
+    lv_obj_add_flag(g_brew, LV_OBJ_FLAG_HIDDEN);
+    g_brewing_shown = false;
+  }
   lv_obj_remove_flag(g_steam, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_to_index(g_steam, -1);          // over whatever page is open (settings, profiles, the editor)
+  if (g_splash) lv_obj_move_to_index(g_splash, -1);
   lv_obj_invalidate(g_st_chart);
   g_steam_shown = true;
 }
@@ -729,6 +795,9 @@ static void fill_profiles(void) {
     lv_obj_set_style_bg_color(r->row, PRESSED, LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(r->row, LV_OPA_COVER, LV_STATE_PRESSED);
     lv_obj_add_event_cb(r->row, on_pick, LV_EVENT_CLICKED, (void *)(intptr_t)p->id);
+    char tg[24];
+    snprintf(tg, sizeof tg, "row.profile.%d", p->id);
+    tag_copy(r->row, tg);
     // leader across the wider row
     lv_obj_update_layout(r->row);
     const int x1 = lv_obj_get_width(r->name) + 8, x2 = 752 - lv_obj_get_width(r->val) - 8;
@@ -747,9 +816,11 @@ static void open_profiles(lv_event_t *e) {
 }
 static void build_profiles(lv_obj_t *scr) {
   g_prof = layer(scr);
+  tag(g_prof, "screen.profiles");
   g_ph = header(g_prof);
   set_text(g_ph.left, "PROFILES");
   lv_obj_t *c = button(g_prof, "Close", close_layer, g_prof);
+  tag(c, "action.close");
   lv_obj_align(c, LV_ALIGN_BOTTOM_RIGHT, -24, -24);
   g_plist = lv_obj_create(g_prof);
   lv_obj_remove_style_all(g_plist);
@@ -764,6 +835,7 @@ static Header g_eh;
 static lv_obj_t *g_ev, *g_ehint;
 static bool g_e_temp;
 static float g_e_val;
+static lv_obj_t *g_e_minus, *g_e_plus;
 
 static void edit_show(void) {
   char b[16];
@@ -776,6 +848,8 @@ static void edit_open(bool temp) {
   g_e_val = temp ? cur_temp(m) : cur_stop(m);
   if (temp && g_e_val < BD_BREW_TEMP_MIN) g_e_val = 93;
   set_text(g_eh.left, temp ? "BREW TEMP" : "STOP WEIGHT");
+  tag(g_e_minus, temp ? "action.temp_down" : "action.weight_down");
+  tag(g_e_plus, temp ? "action.temp_up" : "action.weight_up");
   set_text(g_eh.right, "");
   set_text(g_ehint, temp ? "1 \xE2\x80\x93 105 \xC2\xB0" "C" : "0 \xE2\x80\x93 200 g" " \xC2\xB7 " "0 = NO STOP WEIGHT");
   edit_show();
@@ -814,13 +888,17 @@ static void build_edit(lv_obj_t *scr) {
   g_ev = text(g_edit, &lg_c300_220, INK, "");
   lv_obj_set_style_text_letter_space(g_ev, -4, 0);
   lv_obj_align(g_ev, LV_ALIGN_TOP_MID, 0, 74);
-  lv_obj_align(step_button(g_edit, "\xE2\x88\x92", -1), LV_ALIGN_TOP_LEFT, 24, 150);
-  lv_obj_align(step_button(g_edit, "+", 1), LV_ALIGN_TOP_RIGHT, -24, 150);
+  g_e_minus = step_button(g_edit, "\xE2\x88\x92", -1);
+  lv_obj_align(g_e_minus, LV_ALIGN_TOP_LEFT, 24, 150);
+  g_e_plus = step_button(g_edit, "+", 1);
+  lv_obj_align(g_e_plus, LV_ALIGN_TOP_RIGHT, -24, 150);
   g_ehint = text(g_edit, &lg_mono_13, MUTED, "");
   lv_obj_set_pos(g_ehint, 24, 442);
   lv_obj_t *s = button(g_edit, "Set", on_set, NULL);
+  tag(s, "action.done");
   lv_obj_align(s, LV_ALIGN_BOTTOM_RIGHT, -24, -24);
   lv_obj_t *c = button(g_edit, "Cancel", close_layer, g_edit);
+  tag(c, "action.close");
   lv_obj_align_to(c, s, LV_ALIGN_OUT_LEFT_MID, -16, 0);
   lv_obj_add_flag(g_edit, LV_OBJ_FLAG_HIDDEN);
 }
@@ -841,6 +919,7 @@ static void build_splash(lv_obj_t *scr) {
   lv_obj_t *t = text(g_splash, &lg_600_24, INK, "A screen for Gaggiuino machines, on the Brewdeck core.");
   lv_obj_set_pos(t, 24, 300);
   lv_obj_t *n = text(g_splash, &lg_400_17, MUTED, "Unofficial: not made by or affiliated with the Gaggiuino project.");
+  tag(n, "info.unofficial");
   lv_obj_set_pos(n, 24, 344);
   rule(g_splash, 24, 426, 752, 2, INK);
   lv_obj_set_pos(text(g_splash, &lg_mono_13, INK, "VERSION 0.1"), 24, 440);
@@ -856,7 +935,7 @@ static uint32_t g_offline_at;   // when this try started (0 = online)
 static bool g_off_shown;
 static void open_wifi(lv_event_t *e);
 static void open_addr(lv_event_t *e);
-static void on_retry(lv_event_t *e) { (void)e; bd_wifi_retry(); g_offline_at = g_now | 1; }
+static void on_retry(lv_event_t *e) { (void)e; bd_wifi_retry(); g_offline_at = stamp(g_now); }
 
 static lv_obj_t *column(lv_obj_t *p, int x, int y, int w) {
   lv_obj_t *c = lv_obj_create(p);
@@ -888,9 +967,11 @@ static void show(lv_obj_t *o, bool on) { if (on) lv_obj_remove_flag(o, LV_OBJ_FL
 
 static void build_offline(lv_obj_t *scr) {
   g_off_pg = layer(scr);
+  tag(g_off_pg, "screen.offline");
   g_oh = header(g_off_pg);
   set_text(g_oh.left, "OFFLINE");
   g_off_title = text(g_off_pg, &lg_400_36, INK, "");
+  tag(g_off_title, "value.offline_reason");
   lv_obj_set_pos(g_off_title, 22, 84);
   g_off_body = text(g_off_pg, &lg_400_17, INK, "");
   lv_obj_set_pos(g_off_body, 24, 146);
@@ -905,6 +986,9 @@ static void build_offline(lv_obj_t *scr) {
   g_ob_retry = button(bar, "Try again", on_retry, NULL);
   g_ob_addr = button(bar, "Machine address", open_addr, NULL);
   g_ob_wifi = button(bar, "Wi-Fi settings", open_wifi, NULL);
+  tag(g_ob_retry, "action.retry");
+  tag(g_ob_addr, "action.machine_address");
+  tag(g_ob_wifi, "action.wifi_settings");
   lv_obj_add_flag(g_off_pg, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -960,7 +1044,7 @@ static void offline_step(const bd_machine *m) {
     if (g_off_shown) { lv_obj_add_flag(g_off_pg, LV_OBJ_FLAG_HIDDEN); g_off_shown = false; }
     return;
   }
-  if (!g_offline_at) g_offline_at = g_now | 1;
+  if (!g_offline_at) g_offline_at = stamp(g_now);
   if (!g_off_shown && g_now - g_offline_at > 5000 && !g_brewing_shown && !g_steam_shown) {
     lv_obj_remove_flag(g_off_pg, LV_OBJ_FLAG_HIDDEN);
     g_off_shown = true;
@@ -1000,6 +1084,9 @@ static void fill_wifi(void) {
     lv_obj_set_style_text_font(r->name, &lg_600_17, 0);
     lv_obj_set_style_text_color(r->name, ACCENT, 0);
     lv_label_set_text(r->name, n->ssid);
+    char tg[48];
+    snprintf(tg, sizeof tg, "row.wifi.%s", n->ssid);
+    tag_copy(r->row, tg);
     one_line(r->name, 520);
     snprintf(b, sizeof b, "connected%s%d dBm", DOT, n->rssi);
     lv_label_set_text(r->val, b);
@@ -1012,6 +1099,9 @@ static void fill_wifi(void) {
     lv_obj_set_height(r->row, 52);
     lv_obj_set_style_text_color(r->name, INK, 0);
     lv_label_set_text(r->name, g_nets[i].ssid);
+    char tg[48];
+    snprintf(tg, sizeof tg, "row.wifi.%s", g_nets[i].ssid);
+    tag_copy(r->row, tg);
     one_line(r->name, 520);
     snprintf(b, sizeof b, "%s%d dBm", g_nets[i].locked ? "" : "open \xC2\xB7 ", g_nets[i].rssi);
     lv_label_set_text(r->val, b);
@@ -1038,7 +1128,7 @@ static void close_wifi(lv_event_t *e) { (void)e; lv_obj_add_flag(g_wifi, LV_OBJ_
 static void on_forget(lv_event_t *e) {
   (void)e;
   if (!g_forget_at) {   // two taps: the first one asks
-    g_forget_at = g_now | 1;
+    g_forget_at = stamp(g_now);
     set_text(lv_obj_get_child(g_wforget, 0), "Tap again to forget");
     lv_obj_set_style_text_color(lv_obj_get_child(g_wforget, 0), ACCENT, 0);
     return;
@@ -1052,6 +1142,7 @@ static void on_forget(lv_event_t *e) {
 }
 static void build_wifi(lv_obj_t *scr) {
   g_wifi = layer(scr);
+  tag(g_wifi, "screen.wifi");
   g_wh = header(g_wifi);
   set_text(g_wh.left, "WI-FI");
   g_wlist = lv_obj_create(g_wifi);
@@ -1061,8 +1152,9 @@ static void build_wifi(lv_obj_t *scr) {
   lv_obj_set_flex_flow(g_wlist, LV_FLEX_FLOW_COLUMN);
   lv_obj_t *bar = button_bar(g_wifi);
   g_wforget = button(bar, "Forget network", on_forget, NULL);
-  button(bar, "Machine address", open_addr, NULL);
-  button(bar, "Close", close_wifi, NULL);
+  tag(g_wforget, "action.forget");
+  tag(button(bar, "Machine address", open_addr, NULL), "action.machine_address");
+  tag(button(bar, "Close", close_wifi, NULL), "action.close");
   lv_obj_add_flag(g_wifi, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -1129,7 +1221,7 @@ static void on_kok(lv_event_t *e) {
     bd_set_machine_address(g_ktext);
     kbd_close();
     lv_obj_add_flag(g_wifi, LV_OBJ_FLAG_HIDDEN);
-    g_offline_at = g_offline_at ? (g_now | 1) : 0;   // a new try with the new address
+    g_offline_at = g_offline_at ? stamp(g_now) : 0;   // a new try with the new address
     note("MACHINE ADDRESS SET");
   }
 }
@@ -1137,6 +1229,9 @@ static void kbd_open(int mode, const char *ssid) {
   char b[64];
   g_kmode = mode;
   g_klay = 0;
+  tag(g_kbd, mode == KB_PASS ? "screen.password" : "screen.machine_address");   // one page, two uses
+  tag(g_kfield, mode == KB_PASS ? "input.password" : "input.address");
+  tag(g_kok, mode == KB_PASS ? "action.join" : "action.use");
   if (mode == KB_PASS) {
     snprintf(g_kssid, sizeof g_kssid, "%s", ssid);
     g_klen = 0;
@@ -1189,7 +1284,7 @@ static void build_kbd(lv_obj_t *scr) {
   lv_obj_t *sp = key(g_kbd, 28 + 107 + G, Y0 + 3 * RH, 7 * (KW + G) - G, "space", on_space, NULL);
   lv_obj_set_style_text_font(lv_obj_get_child(sp, 0), &lg_600_17, 0);
   lv_obj_t *bar = button_bar(g_kbd);
-  button(bar, "Cancel", on_kcancel, NULL);
+  tag(button(bar, "Cancel", on_kcancel, NULL), "action.close");
   g_kok = button(bar, "Join", on_kok, NULL);
   lv_obj_add_flag(g_kbd, LV_OBJ_FLAG_HIDDEN);
 }
@@ -1246,6 +1341,8 @@ static void open_settings(lv_event_t *e) {
 }
 static void build_settings(lv_obj_t *scr) {
   g_set = layer(scr);
+  tag(g_set, "screen.menu");
+  tag_marker(g_set, "screen.about");                  // the versions are on the same page
   g_gh = header(g_set);
   set_text(g_gh.left, "SETTINGS");
   lv_obj_t *col = column(g_set, 24, 66, 752);
@@ -1257,14 +1354,18 @@ static void build_settings(lv_obj_t *scr) {
   row_init(&g_gr_fw, col, "Machine firmware", false, NULL);
   row_init(&g_gr_mscr, col, "Machine screen, web UI", false, NULL);
   row_init(&g_gr_upd, col, "Machine update", false, NULL);
+  tag(g_gr_wifi.row, "action.wifi_settings");
+  tag(g_gr_addr.row, "action.machine_address");
+  tag(g_gr_upd.val, "info.update");
   Row *rows[] = {&g_gr_wifi, &g_gr_addr, &g_gr_ip, &g_gr_ver, &g_gr_up, &g_gr_fw, &g_gr_mscr, &g_gr_upd};
   for (Row *r : rows) { r->w = 752; lv_obj_set_width(r->row, 752); one_line(r->val, 480); row_fit(r); }
   lv_obj_t *n = text(g_set, &lg_400_17, MUTED, "Unofficial: not made by or affiliated with the Gaggiuino project.");
+  tag(n, "info.unofficial");
   lv_obj_set_pos(n, 24, 422);
   lv_obj_t *bar = button_bar(g_set);
   lv_obj_set_width(bar, LV_SIZE_CONTENT);
   lv_obj_align(bar, LV_ALIGN_BOTTOM_RIGHT, -24, -24);
-  button(bar, "Close", close_layer, g_set);
+  tag(button(bar, "Close", close_layer, g_set), "action.close");
   lv_obj_add_flag(g_set, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -1279,6 +1380,7 @@ static void rel_border(void *o, int32_t v) { lv_obj_set_style_border_width((lv_o
 static void build_release(void) {
   lv_obj_t *top = lv_layer_top();
   g_rel_frame = lv_obj_create(top);
+  tag(g_rel_frame, "warn.release");
   lv_obj_remove_style_all(g_rel_frame);
   lv_obj_set_size(g_rel_frame, 800, 480);
   lv_obj_set_style_border_color(g_rel_frame, ACCENT, 0);
@@ -1297,10 +1399,10 @@ static void release_event(int count) {
   char b[64];
   if (count >= 0) {
     snprintf(b, sizeof b, "Water coming: pressure release in %d", count);
-    g_rel_until = (g_now + 2500) | 1;
+    g_rel_until = stamp(g_now + 2500);
   } else {
     snprintf(b, sizeof b, "Releasing pressure: water coming");
-    g_rel_until = (g_now + 5000) | 1;
+    g_rel_until = stamp(g_now + 5000);
   }
   set_text(g_rel_text, b);
   lv_obj_remove_flag(g_rel_frame, LV_OBJ_FLAG_HIDDEN);
@@ -1362,6 +1464,7 @@ static void idle_move(void) {   // a new spot within +-24 px of the centre
 
 static void build_standby(lv_obj_t *scr) {
   g_idle = layer(scr);
+  tag(g_idle, "screen.idle");
   lv_obj_add_flag(g_idle, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(g_idle, on_standby_tap, LV_EVENT_CLICKED, NULL);
   g_idle_box = lv_obj_create(g_idle);
@@ -1395,7 +1498,7 @@ static bool running(const bd_machine *m) {
 static void standby_step(const bd_machine *m) {
   if (running(m)) { lv_display_trigger_activity(NULL); standby_wake(); return; }
   const bool away = m->link != BD_LINK_ONLINE;
-  if (!away) g_away_since = 0; else if (!g_away_since) g_away_since = g_now | 1;
+  if (!away) g_away_since = 0; else if (!g_away_since) g_away_since = stamp(g_now);
   if (g_sb == 2 && g_off_away && !away) { standby_wake(); return; }   // the machine is back
   const uint32_t still = lv_display_get_inactive_time(NULL);
   if (g_sb < 2 && (still > OFF_MS || (away && g_now - g_away_since > OFF_AWAY_MS && still > OFF_AWAY_MS))) {
@@ -1447,10 +1550,10 @@ void bd_ui_init(void) {
 void bd_ui_tick(uint32_t now) {
   static uint32_t seen_m = ~0u, seen_shape = ~0u, seen_p = ~0u;
   g_now = now;
-  if (g_splash && !g_splash_until) g_splash_until = (now + 5000) | 1;   // 5 s from when it is first shown
+  if (g_splash && !g_splash_until) g_splash_until = stamp(now + 5000);   // 5 s from when it is first shown
   if (g_splash && (int32_t)(now - g_splash_until) > 0) splash_close(NULL);
   const bd_machine *m = bd_machine_state();
-  if (bd_seq_machine() != seen_m) { seen_m = bd_seq_machine(); update_ready(m); }
+  if (bd_seq_machine() != seen_m || (g_word_held && now - g_drop_at >= 5000)) { seen_m = bd_seq_machine(); update_ready(m); }
   if (bd_seq_shape() != seen_shape) {
     seen_shape = bd_seq_shape();
     g_pv_ok = g_pv && bd_active_shape()->id && bd_profile_preview(bd_active_shape(), PLAN_W, 110, g_pv);
@@ -1503,7 +1606,7 @@ void bd_ui_event(const bd_event *e) {
       else if (e->u.join.state == BD_JOIN_OK) {
         if (kb) kbd_close();
         lv_obj_add_flag(g_wifi, LV_OBJ_FLAG_HIDDEN);
-        g_offline_at = g_offline_at ? (g_now | 1) : 0;
+        g_offline_at = g_offline_at ? stamp(g_now) : 0;
         note("WI-FI JOINED");
       } else if (e->u.join.state == BD_JOIN_FAILED) set_text(h->right, kb ? "NOT JOINED Â· CHECK THE PASSWORD" : "NOT JOINED");
       break;
