@@ -1538,6 +1538,92 @@ static void standby_step(const bd_machine *m) {
   if (g_sb == 1 && g_now - upd > 1000) { upd = g_now; idle_update(m); }
 }
 
+// ---- Firmware update -----------------------------------------------------------------------------------------------
+// A new firmware arriving over Wi-Fi (debug builds of the core, build.sh --ota: BD_EV_UPDATE): a page over everything,
+// the idle clock and the release frame included, lit. Progress as an ink bar under the text, the details as ledger
+// rows. Installed: the core restarts ~2 s later. Stopped: nothing changed, back to the page below after 5 s.
+#ifdef BD_HAS_UPDATE_EVENT
+static lv_obj_t *g_up, *g_up_title, *g_up_body, *g_up_fill;
+static Header g_uph;
+static Row g_ur_got, g_ur_built, g_ur_from;
+static int g_up_state = BD_UPDATE_NONE, g_up_pct;
+static uint32_t g_up_stopped_at;
+
+static void build_update(void) {
+  g_up = layer(lv_layer_top());
+  tag(g_up, "screen.update");
+  lv_obj_add_flag(g_up, LV_OBJ_FLAG_CLICKABLE);   // nothing under it reacts meanwhile
+  g_uph = header(g_up);
+  g_up_title = text(g_up, &lg_400_36, INK, "");
+  tag(g_up_title, "value.update_title");
+  lv_obj_set_pos(g_up_title, 22, 84);
+  g_up_body = text(g_up, &lg_400_17, INK, "");
+  lv_obj_set_pos(g_up_body, 24, 146);
+  lv_obj_set_width(g_up_body, 620);
+  lv_label_set_long_mode(g_up_body, LV_LABEL_LONG_MODE_WRAP);
+  lv_obj_set_style_text_line_space(g_up_body, 6, 0);
+  rule(g_up, 24, 236, 752, 6, GRID);
+  g_up_fill = rule(g_up, 24, 236, 6, 6, INK);
+  lv_obj_t *col = column(g_up, 24, 266, 520);
+  wide_row(&g_ur_got, col, "Received", 520);
+  tag(g_ur_got.row, "value.update_progress");
+  wide_row(&g_ur_built, col, "New version built", 520);
+  wide_row(&g_ur_from, col, "Sent from", 520);
+  lv_obj_add_flag(g_up, LV_OBJ_FLAG_HIDDEN);
+}
+static void update_left(void) {   // "Stopped at 38 % · back in 0:05", counting down
+  char b[64];
+  const uint32_t el = g_now - g_up_stopped_at;
+  snprintf(b, sizeof b, "Stopped at %d %%%sback in 0:%02u", g_up_pct, DOT, (unsigned)(el >= 5000 ? 0 : (5999 - el) / 1000));
+  row_set(&g_ur_got, b);
+}
+static void update_event(const bd_event *e) {
+  const int st = e->u.update.state;
+  if (st == BD_UPDATE_NONE) {
+    g_up_state = st;
+    lv_obj_add_flag(g_up, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  standby_wake();
+  lv_display_trigger_activity(NULL);              // no dimming meanwhile
+  lv_obj_remove_flag(g_up, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_to_index(g_up, -1);                 // over the release frame too
+  g_up_pct = e->u.update.percent < 0 ? 0 : e->u.update.percent > 100 ? 100 : e->u.update.percent;
+  char b[96];
+  if (st != g_up_state) {
+    g_up_state = st;
+    set_text(g_uph.left, st == BD_UPDATE_STOPPED ? "UPDATE STOPPED" : "UPDATE");
+    set_text(g_up_title, st == BD_UPDATE_RECEIVING ? "Updating the screen" : st == BD_UPDATE_INSTALLED ? "Update installed" : "Update stopped");
+    set_text(g_up_body, st == BD_UPDATE_RECEIVING ? "New firmware is arriving over Wi-Fi. Leave the screen on: the machine works as usual."
+                        : st == BD_UPDATE_INSTALLED ? "Restarting now. If the new version does not run properly, the screen goes back to this one by itself."
+                                                    : "The update did not arrive completely. Nothing changed: the screen keeps its current version.");
+    lv_obj_set_style_bg_color(g_up_fill, st == BD_UPDATE_STOPPED ? MUTED : INK, 0);
+    row_set(&g_ur_built, e->u.update.built && e->u.update.built[0] ? e->u.update.built : DASH);
+    row_set(&g_ur_from, e->u.update.from && e->u.update.from[0] ? e->u.update.from : DASH);
+    if (st == BD_UPDATE_STOPPED) g_up_stopped_at = stamp(g_now);
+  }
+  const int w = 752 * (st == BD_UPDATE_INSTALLED ? 100 : g_up_pct) / 100;
+  lv_obj_set_width(g_up_fill, w < 6 ? 6 : w);
+  snprintf(b, sizeof b, "%d %%", st == BD_UPDATE_INSTALLED ? 100 : g_up_pct);
+  set_text(g_uph.right, st == BD_UPDATE_STOPPED ? "" : b);
+  if (st == BD_UPDATE_RECEIVING)
+    snprintf(b, sizeof b, "%.1f of %.1f MB", e->u.update.received / 1048576.0f, e->u.update.total / 1048576.0f);
+  else if (st == BD_UPDATE_INSTALLED) snprintf(b, sizeof b, "%.1f MB%srestarting", e->u.update.total / 1048576.0f, DOT);
+  if (st == BD_UPDATE_STOPPED) update_left();
+  else row_set(&g_ur_got, b);
+}
+static void update_step(void) {
+  if (g_up_state != BD_UPDATE_STOPPED || lv_obj_has_flag(g_up, LV_OBJ_FLAG_HIDDEN)) return;
+  if (g_now - g_up_stopped_at >= 5000) {
+    g_up_state = BD_UPDATE_NONE;
+    lv_obj_add_flag(g_up, LV_OBJ_FLAG_HIDDEN);
+  } else update_left();
+}
+#else
+static void build_update(void) {}
+static void update_step(void) {}
+#endif
+
 // ---- what the core calls -------------------------------------------------------------------------------------------
 void bd_ui_init(void) {
   bd_lvgl9_setup();
@@ -1557,6 +1643,7 @@ void bd_ui_init(void) {
   build_standby(scr);
   build_splash(scr);
   build_release();
+  build_update();   // top layer, over the release frame
 }
 
 void bd_ui_tick(uint32_t now) {
@@ -1596,6 +1683,7 @@ void bd_ui_tick(uint32_t now) {
   }
   standby_step(m);
   release_step();
+  update_step();
   bd_lvgl9_tick(now);
 }
 
@@ -1636,6 +1724,9 @@ void bd_ui_event(const bd_event *e) {
     case BD_EV_COMMAND:
       if (e->u.command.answer != BD_ANSWER_OK) note("THE MACHINE DID NOT TAKE IT");
       break;
+#ifdef BD_HAS_UPDATE_EVENT
+    case BD_EV_UPDATE: update_event(e); break;
+#endif
     default: break;   // notices, stored shots, Wi-Fi: not used yet
   }
 }
